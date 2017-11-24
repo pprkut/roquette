@@ -2,7 +2,7 @@ import os
 import beets.library
 from PyQt5.QtCore import *
 
-class TrackItem(object):
+class LibraryItem(object):
     def __init__(self, data, parent=None):
         self.parentItem = parent
         self.libraryItem = data
@@ -18,14 +18,6 @@ class TrackItem(object):
         return len(self.children)
 
     def data(self, index):
-        if (self.libraryItem):
-            if (index == 0):
-                return self.libraryItem.artist
-            elif (index == 1):
-                return self.libraryItem.title
-            else:
-                return None
-
         return None
 
     def parent(self):
@@ -40,10 +32,39 @@ class TrackItem(object):
     def reset(self):
         self.children = []
 
+class TrackItem(LibraryItem):
+    def __init__(self, data, parent=None):
+        super(TrackItem, self).__init__(data, parent)
+
+    def data(self, index):
+        if (self.libraryItem):
+            if (index == 0):
+                return self.libraryItem.artist
+            elif (index == 1):
+                return self.libraryItem.title
+            else:
+                return None
+
+        return None
+
+class ArtistItem(LibraryItem):
+    def __init__(self, data, parent=None):
+        super(ArtistItem, self).__init__(data, parent)
+
+    def data(self, index):
+        if (self.libraryItem):
+            if (index == 0):
+                return self.libraryItem
+            else:
+                return None
+
+        return None
+
 class LibraryModel(QAbstractItemModel):
     def __init__(self, parent=None):
         super(LibraryModel, self).__init__(parent)
-        self.rootItem = TrackItem(None, None)
+        self.rootItem = LibraryItem(None, None)
+        self.artists = {}
 
         # Setup beets
         libpath = os.path.expanduser('~/data/beets.blb')
@@ -54,6 +75,7 @@ class LibraryModel(QAbstractItemModel):
     @pyqtSlot(str)
     def search(self, query):
         self.rootItem.reset()
+        self.artists = {}
         self.setupModelData(query)
         self.beginResetModel()
         self.endResetModel()
@@ -122,4 +144,11 @@ class LibraryModel(QAbstractItemModel):
 
     def setupModelData(self, query):
         for item in self.library.items(query):
-            self.rootItem.appendChild(TrackItem(item, self.rootItem))
+            if item.albumartist in self.artists:
+                artist = self.artists.get(item.albumartist)
+            else:
+                artist = ArtistItem(item.albumartist, self.rootItem)
+                self.artists[item.albumartist] = artist
+                self.rootItem.appendChild(artist)
+
+            artist.appendChild(TrackItem(item, artist))
