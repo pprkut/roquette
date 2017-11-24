@@ -17,7 +17,7 @@ import sys
 import signal
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtQml import QQmlApplicationEngine
-from roquette import collection
+from roquette import Library
 
 def main(args=None):
     # Create main app
@@ -26,15 +26,15 @@ def main(args=None):
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     engine = QQmlApplicationEngine()
-    engine.load('roquette/qml/main.qml')
     context = engine.rootContext()
 
-    library = collection.Collection()
+    library = Library.LibraryModel()
 
     # Connect library to the QML application
-    context.setContextProperty("Collection", library)
+    context.setContextProperty("LibraryModel", library)
 
     # Execute the Application and Exit
+    engine.load('roquette/qml/main.qml')
     sys.exit(roquette.exec_())
 
 # Main Function

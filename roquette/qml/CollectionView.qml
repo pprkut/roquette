@@ -20,15 +20,10 @@ ColumnLayout {
     width: parent.width
     height: parent.height
 
-    function searchLibrary(query) {
-        var value = Collection.search(query)
-        collectionView.text = value
-    }
-
     Timer {
         id: searchDelay
         interval: 500
-        onTriggered: searchLibrary(searchText.text)
+        onTriggered: LibraryModel.search(searchText.text)
     }
 
     ToolBar {
@@ -52,11 +47,17 @@ ColumnLayout {
         }
     }
 
-    TextArea {
+    TreeView {
         id: collectionView
-
         Layout.fillWidth: true
         Layout.fillHeight: true
         visible: true
+
+        model: LibraryModel
+
+        TableViewColumn {
+            title: "Name"
+            role: "TitleRole"
+        }
     }
 }
