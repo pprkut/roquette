@@ -17,12 +17,14 @@ class TrackItem(object):
     def childCount(self):
         return len(self.children)
 
-    def columnCount(self):
-        return 1
-
     def data(self, index):
         if (self.libraryItem):
-            return self.libraryItem.title
+            if (index == 0):
+                return self.libraryItem.artist
+            elif (index == 1):
+                return self.libraryItem.title
+            else:
+                return None
 
         return None
 
@@ -58,15 +60,13 @@ class LibraryModel(QAbstractItemModel):
 
     def roleNames(self):
         roles = {
-            Qt.UserRole + 1: b"TitleRole",
+            0: b"ArtistRole",
+            1: b"TitleRole",
         }
         return roles
 
     def columnCount(self, parent):
-        if parent.isValid():
-            return parent.internalPointer().columnCount()
-        else:
-            return self.rootItem.columnCount()
+        return 2;
 
     def data(self, index, role):
         if not index.isValid():
@@ -74,16 +74,13 @@ class LibraryModel(QAbstractItemModel):
 
         item = index.internalPointer()
 
-        return item.data(index.column())
+        return item.data(role)
 
     def flags(self, index):
         if not index.isValid():
             return Qt.NoItemFlags
 
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-
-    def headerData(self, section, orientation, role):
-        return None
 
     def index(self, row, column, parent):
         if not self.hasIndex(row, column, parent):

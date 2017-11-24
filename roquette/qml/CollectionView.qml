@@ -56,7 +56,11 @@ ColumnLayout {
         model: LibraryModel
 
         TableViewColumn {
-            title: "Name"
+            title: "Artist"
+            role: "ArtistRole"
+        }
+        TableViewColumn {
+            title: "Title"
             role: "TitleRole"
         }
     }
