@@ -165,12 +165,12 @@ class LibraryModel(QAbstractItemModel):
 
         self.setupModelData('')
 
-    @pyqtSlot(str)
+    @pyqtSlot(str, result = bool)
     def search(self, query):
-        self.rootItem.reset()
-        self.setupModelData(query)
         self.beginResetModel()
+        result = self.setupModelData(query)
         self.endResetModel()
+        return result
 
     def roleNames(self):
         roles = {
@@ -236,5 +236,16 @@ class LibraryModel(QAbstractItemModel):
     def setupModelData(self, query):
         sort  = FixedFieldSort
         msort = MultipleSort([sort(u'albumartist'), sort('year', False), sort('month', False), sort('day', False), sort(u'album'), sort('disc'), sort('track')])
-        for item in self.library.items(query, msort):
+
+        try:
+            items = self.library.items(query, msort)
+        except:
+            return False
+
+        self.rootItem.reset()
+
+        for item in items:
             self.rootItem.appendChild(item)
+
+        return True
+
