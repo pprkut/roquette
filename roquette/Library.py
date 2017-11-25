@@ -7,9 +7,17 @@ class LibraryItem(object):
         self.parentItem = parent
         self.libraryItem = data
         self.children = []
+        self.map = {}
 
-    def appendChild(self, item):
-        self.children.append(item)
+    def appendChild(self, data):
+        if data.albumartist in self.map:
+            artist = self.map.get(data.albumartist)
+        else:
+            artist = ArtistItem(data.albumartist, self)
+            self.map[data.albumartist] = artist
+            self.children.append(artist)
+
+        artist.appendChild(data)
 
     def child(self, index):
         return self.children[index]
@@ -31,10 +39,14 @@ class LibraryItem(object):
 
     def reset(self):
         self.children = []
+        self.map = {}
 
 class TrackItem(LibraryItem):
     def __init__(self, data, parent=None):
         super(TrackItem, self).__init__(data, parent)
+
+    def appendChild(self, data):
+        return None
 
     def data(self, index):
         if (self.libraryItem):
@@ -47,9 +59,40 @@ class TrackItem(LibraryItem):
 
         return None
 
+class AlbumItem(LibraryItem):
+    def __init__(self, data, parent=None):
+        super(AlbumItem, self).__init__(data, parent)
+
+    def appendChild(self, data):
+        self.children.append(TrackItem(data, self))
+
+    def data(self, index):
+        if (self.libraryItem):
+            if (index == 0):
+                return self.libraryItem
+            else:
+                return None
+
+        return None
+
 class ArtistItem(LibraryItem):
     def __init__(self, data, parent=None):
         super(ArtistItem, self).__init__(data, parent)
+
+    def appendChild(self, data):
+        if data.album_id in self.map:
+            album = self.map.get(data.album_id)
+        else:
+            if data.albumdisambig:
+                text = '{} - {} ({})'.format(data.year, data.album, data.albumdisambig)
+            else:
+                text = '{} - {}'.format(data.year, data.album)
+
+            album = AlbumItem(text, self)
+            self.map[data.album_id] = album
+            self.children.append(album)
+
+        album.appendChild(data)
 
     def data(self, index):
         if (self.libraryItem):
@@ -64,7 +107,6 @@ class LibraryModel(QAbstractItemModel):
     def __init__(self, parent=None):
         super(LibraryModel, self).__init__(parent)
         self.rootItem = LibraryItem(None, None)
-        self.artists = {}
 
         # Setup beets
         libpath = os.path.expanduser('~/data/beets.blb')
@@ -75,7 +117,6 @@ class LibraryModel(QAbstractItemModel):
     @pyqtSlot(str)
     def search(self, query):
         self.rootItem.reset()
-        self.artists = {}
         self.setupModelData(query)
         self.beginResetModel()
         self.endResetModel()
@@ -144,11 +185,4 @@ class LibraryModel(QAbstractItemModel):
 
     def setupModelData(self, query):
         for item in self.library.items(query):
-            if item.albumartist in self.artists:
-                artist = self.artists.get(item.albumartist)
-            else:
-                artist = ArtistItem(item.albumartist, self.rootItem)
-                self.artists[item.albumartist] = artist
-                self.rootItem.appendChild(artist)
-
-            artist.appendChild(TrackItem(item, artist))
+            self.rootItem.appendChild(item)
