@@ -59,12 +59,43 @@ class TrackItem(LibraryItem):
 
         return None
 
+class MediumItem(LibraryItem):
+    def __init__(self, data, parent=None):
+        super(MediumItem, self).__init__(data, parent)
+
+    def appendChild(self, data):
+        self.children.append(TrackItem(data, self))
+
+    def data(self, index):
+        if (self.libraryItem):
+            if (index == 0):
+                return self.libraryItem
+            else:
+                return None
+
+        return None
+
 class AlbumItem(LibraryItem):
     def __init__(self, data, parent=None):
         super(AlbumItem, self).__init__(data, parent)
 
     def appendChild(self, data):
-        self.children.append(TrackItem(data, self))
+        if data.disctotal == 1:
+            self.children.append(TrackItem(data, self))
+        else:
+            if data.disc in self.map:
+                medium = self.map.get(data.disc)
+            else:
+                if data.disctitle:
+                    text = 'Medium {} ({}) - {}'.format(data.disc, data.media, data.disctitle)
+                else:
+                    text = 'Medium {} ({})'.format(data.disc, data.media)
+
+                medium = MediumItem(text, self)
+                self.map[data.disc] = medium
+                self.children.append(medium)
+
+            medium.appendChild(data)
 
     def data(self, index):
         if (self.libraryItem):
