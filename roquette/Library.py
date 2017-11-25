@@ -1,5 +1,6 @@
 import os
 import beets.library
+from beets.dbcore.query import FixedFieldSort, MultipleSort
 from PyQt5.QtCore import *
 
 class LibraryItem(object):
@@ -212,5 +213,7 @@ class LibraryModel(QAbstractItemModel):
         return parentItem.childCount()
 
     def setupModelData(self, query):
-        for item in self.library.items(query):
+        sort  = FixedFieldSort
+        msort = MultipleSort([sort(u'albumartist'), sort('year', False), sort('month', False), sort('day', False), sort(u'album'), sort('disc'), sort('track')])
+        for item in self.library.items(query, msort):
             self.rootItem.appendChild(item)
