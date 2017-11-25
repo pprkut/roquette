@@ -51,8 +51,18 @@ class TrackItem(LibraryItem):
 
     def data(self, index):
         if (self.libraryItem):
+            if (self.libraryItem.format == 'MP3'):
+                image = '../../images/audio-mp3.svg'
+            elif (self.libraryItem.format == 'AAC'):
+                image = '../../images/audio-mp4.svg'
+            elif (self.libraryItem.format == 'FLAC'):
+                image = '../../images/audio-x-flac.svg'
+            else:
+                image = '../../images/audio-x-generic.svg'
+
             if (index == 0):
-                return '{:02d}. {} - {}'.format(self.libraryItem.track, self.libraryItem.artist, self.libraryItem.title)
+                text = '{:02d}. {} - {}'.format(self.libraryItem.track, self.libraryItem.artist, self.libraryItem.title)
+                return { 'text': text, 'image': image }
             else:
                 return None
 
@@ -61,14 +71,25 @@ class TrackItem(LibraryItem):
 class MediumItem(LibraryItem):
     def __init__(self, data, parent=None):
         super(MediumItem, self).__init__(data, parent)
+        self.medium = ''
 
     def appendChild(self, data):
+        self.medium = data.media
         self.children.append(TrackItem(data, self))
 
     def data(self, index):
         if (self.libraryItem):
+            if (self.medium.startswith('DVD')):
+                image = '../../images/media-optical-dvd.svg'
+            elif (self.medium.startswith('Blu-ray')):
+                image = '../../images/media-optical-blu-ray.svg'
+            elif (self.medium.startswith('Digital')):
+                image = '../../images/media-optical-data.svg'
+            else:
+                image = '../../images/media-optical.svg'
+
             if (index == 0):
-                return self.libraryItem
+                return { 'text': self.libraryItem, 'image': image }
             else:
                 return None
 
@@ -99,7 +120,7 @@ class AlbumItem(LibraryItem):
     def data(self, index):
         if (self.libraryItem):
             if (index == 0):
-                return self.libraryItem
+                return { 'text': self.libraryItem, 'image': '../../images/nocover.svg' }
             else:
                 return None
 
@@ -127,7 +148,7 @@ class ArtistItem(LibraryItem):
     def data(self, index):
         if (self.libraryItem):
             if (index == 0):
-                return self.libraryItem
+                return { 'text': self.libraryItem, 'image': '../../images/actor.svg' }
             else:
                 return None
 

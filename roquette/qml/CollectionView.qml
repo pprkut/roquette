@@ -56,6 +56,22 @@ ColumnLayout {
 
         model: LibraryModel
 
+        itemDelegate: Item {
+            Image {
+                id: image
+                source: styleData.value.image ? String(styleData.value.image) : ""
+                sourceSize.height: parent.height
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                color: styleData.textColor
+                elide: styleData.elideMode
+                text: String(styleData.value.text)
+                leftPadding: image.width + 5
+            }
+        }
+
         TableViewColumn {
             id: titleColumn
             title: "Title"
