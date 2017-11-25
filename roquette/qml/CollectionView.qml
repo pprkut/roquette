@@ -52,16 +52,15 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         visible: true
+        headerVisible: false
 
         model: LibraryModel
 
         TableViewColumn {
-            title: "Artist"
-            role: "ArtistRole"
-        }
-        TableViewColumn {
+            id: titleColumn
             title: "Title"
             role: "TitleRole"
+            width: collectionView.viewport.width
         }
     }
 }

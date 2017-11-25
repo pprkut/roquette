@@ -51,9 +51,7 @@ class TrackItem(LibraryItem):
     def data(self, index):
         if (self.libraryItem):
             if (index == 0):
-                return self.libraryItem.artist
-            elif (index == 1):
-                return self.libraryItem.title
+                return '{:02d}. {} - {}'.format(self.libraryItem.track, self.libraryItem.artist, self.libraryItem.title)
             else:
                 return None
 
@@ -154,8 +152,7 @@ class LibraryModel(QAbstractItemModel):
 
     def roleNames(self):
         roles = {
-            0: b"ArtistRole",
-            1: b"TitleRole",
+            0: b"TitleRole",
         }
         return roles
 
