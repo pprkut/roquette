@@ -365,13 +365,17 @@ starts. Keep semantically different changes in separate commits.
 ### Phase 0 — Restart
 
 - **M0 — Scaffold.** `pyproject.toml` (Python ≥ 3.12; beets, slint,
-  PyGObject as dependencies; `roquette` and `beetsplug` packages), ruff,
-  mypy, pytest, `justfile` (`just check` runs what CI runs), GitHub
-  Actions. Licensing and REUSE (see "Licensing"). `just dev-library`
-  creates the development copy of the beets config and library. The 2017
-  code is removed; it stays in the git history. The README is updated.
-  *Done when:* `just check` passes in CI, with one test that opens the dev
-  library copy (skipped in CI).
+  PyGObject as dependencies; `roquette` and `beetsplug` packages; a `dev`
+  dependency group for CI), ruff, mypy, pytest, `.editorconfig`,
+  `typos.toml`, `justfile` (`just check` runs what CI runs), and the CI
+  workflows from "Conventions": general, dependencies and code tests,
+  Codecov, Dependabot. `scripts/setup-ci.sh`, shared by CI and cloud
+  sessions. Licensing and REUSE (see "Licensing").
+  `just dev-library` creates the development copy of the beets config and
+  library. The 2017 code is removed; it stays in the git history. The
+  README is updated.
+  *Done when:* `just check` passes locally and in CI, with one test that
+  opens the dev library copy (skipped in CI).
 
 ### Phase 1 — Spikes
 
@@ -451,12 +455,15 @@ From here on every milestone ships with tests.
 
 - **M5 — Main window.** The layout, the module host and module API
   (context, actions, lazy loading), the transport bar wired to the engine.
+  A smoke test starts the window under Xvfb in CI (in the jobs for pull
+  requests, `master` and weekly).
 - **M6 — Tree module.** The collection tree with beets-query search,
   adding to the playlist (double-click, context menu, drag and drop).
 - **M7 — Playlist pane, basic.** One line per track, reordering, removing,
   current track marker, jump to track.
 - **M8 — Desktop integration.** MPRIS (media keys, Plasma's media
-  controls), single instance, `.desktop` file, icon.
+  controls), single instance, `.desktop` file, icon, AppStream metadata;
+  CI validates the `.desktop` file and the metadata.
 
 **Milestone: MVP** — browse, queue and play music, gapless and with
 ReplayGain, within the budgets, including the 8-hour run.
@@ -521,6 +528,11 @@ One milestone each, in an order decided at the time:
 
 ### Backlog
 
+- Performance tracking in CI with Bencher, following ren's design
+  (`docs/decisions/0019-ci.md` there, "Performance tracking"): memory
+  under Xvfb from `just measure` per pull request, with the budgets as
+  thresholds; time and CPU from runs on the desktop. After the MVP, and
+  after ren has tried it out.
 - A settings dialog (see M4).
 - ListenBrainz recommendations and "fresh releases" for artists in the
   library.
@@ -534,9 +546,59 @@ One milestone each, in an order decided at the time:
 ## Conventions
 
 - Keep semantically different changes in separate commits.
-- `just check` (ruff, ruff format, mypy, pytest, `reuse lint`) passes
-  before each commit; CI runs the same recipes.
-- Each milestone is developed on a branch with a pull request.
+- `just check` passes before each commit.
+- No virtual environment and no installation for development: roquette
+  runs from the checkout (`python3 -m roquette`), and beets finds the
+  roquette plugin through `pluginpath:` in the dev config, which
+  `just dev-library` points at the repository's `beetsplug/`. The
+  dependencies and tools are system packages. Locally, `just check` skips
+  a tool that isn't installed, with a note, and CI runs all of them.
+- Cloud sessions (Claude Code on the web) are set up like CI: a
+  throwaway Ubuntu container where `scripts/setup-ci.sh` (`just
+  setup-ci`) installs GStreamer and PyGObject's system libraries with apt
+  and the Python dependencies with pip. CI runs the same script, so the
+  two can't drift. On Ubuntu's own Python (PEP 668) the script installs
+  into a venv inside the container. The cloud environment runs it when
+  a session starts (its setup script, or a `SessionStart` hook limited
+  to remote sessions; M0 picks one). Without the dev library, music, a
+  display or a sound card, cloud sessions suit work covered by the tests
+  (library layer, queue, settings, CI). Spikes, listening tests,
+  `just measure` and anything against the dev library run locally.
+- In CI, pip installs into the runner's Python (thrown away after each
+  run). Runtime dependencies are ranges in `pyproject.toml` (no lock
+  file); the development tools (ruff, mypy, pytest, …) are pinned exactly
+  in the `dev` dependency group (`pip install --group dev`), so their
+  findings don't change between runs. The oldest supported versions are
+  tested through a pip constraints file (`ci/oldest.txt`) with the
+  minimum of each range.
+- CI (`.github/workflows/`) is split by when the checks run, and its jobs
+  run the `justfile`'s recipes, so `just check` runs what CI runs:
+  - `general.yml`, on every push: REUSE, typos, EditorConfig, shellcheck
+    (`scripts/`), zizmor (the workflows); from M8 the `.desktop` file and
+    the AppStream metadata.
+  - `dependencies.yml`, on every push and weekly: the dependencies'
+    licences (`pip-licenses`, the list from "Licensing"), security
+    advisories (`pip-audit`), unused, missing and transitive-only
+    dependencies (`deptry`).
+  - `code-tests.yml`, on every push and weekly: ruff check, ruff format,
+    mypy, pytest with GStreamer from the runner's packages, for the
+    oldest supported Python (3.12) and the newest, and for the oldest
+    supported beets 2.x and the newest; coverage and JUnit results to
+    Codecov (OIDC, tokenless for forks); building the sdist and wheel and
+    checking them (`twine check`, `validate-pyproject`).
+  - From M5, jobs that need a display (the Xvfb smoke test) run for pull
+    requests, `master`, weekly and on demand.
+
+  Keep it green. Actions are pinned by commit, jobs ask for their
+  permissions (`permissions: {}` at the top), checkouts don't keep
+  credentials, a new push cancels the branch's previous run (not on
+  `master`), scheduled runs skip forks, and zizmor must pass. Dependabot
+  updates the actions and the pinned development tools weekly, with a
+  7-day cooldown; the runtime ranges are only raised when needed
+  (`increase-if-necessary`). A new check gets a recipe of its own, which CI runs.
+- Each milestone is developed on a branch with a draft pull request,
+  opened with the first push so CI runs on it, and marked ready when the
+  milestone is done.
 - Task automation goes into the `justfile`; longer scripts into `scripts/`.
 - Prefer small, maintained dependencies; justify heavy ones in the commit
   message, including what they cost at startup and in RSS. Before adding

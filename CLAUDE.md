@@ -16,7 +16,9 @@ UI, GStreamer playback).
   (including measurements and open issues) and stop for review. Don't start
   the next milestone without the go-ahead.
 - Keep semantically different changes in separate commits. Each milestone
-  gets its own branch with a pull request.
+  gets its own branch with a draft pull request, opened with the first
+  push and marked ready when the milestone is done (see "Conventions" in
+  the plan for what CI runs).
 - **The live beets data is read-only.** Never write to `~/data/beets.blb`,
   `~/.config/beets/` or the music files in `/mnt/media/Music`. Development
   uses the copy made by `just dev-library` in `dev/`: run roquette and
@@ -32,8 +34,13 @@ UI, GStreamer playback).
   `just measure` run compared with the previous milestone.
 - Never use real ListenBrainz/Last.fm credentials in tests or the
   development config.
-- Before committing: `just check` (ruff, ruff format, mypy, pytest,
-  `reuse lint`). Tests are optional in phase 1 (spikes), mandatory from
+- Before committing: `just check` (everything CI runs that doesn't need a
+  display; tools that aren't installed are skipped locally).
+- No venv, no `pip install` on the development machine: run from the
+  checkout (`python3 -m roquette`); dependencies and tools are system
+  packages. Only CI and cloud sessions install with pip, through
+  `scripts/setup-ci.sh`. In a cloud session there's no dev library, music,
+  display or sound card: stick to work the tests cover. Tests are optional in phase 1 (spikes), mandatory from
   phase 2 on — but follow "Designing for testability" in the plan from the
   start.
 - Licence: MIT with REUSE headers; see "Licensing" in the plan.
