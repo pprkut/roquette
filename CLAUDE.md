@@ -43,4 +43,7 @@ UI, GStreamer playback).
   packages. Only CI and cloud sessions install with pip, through
   `scripts/setup-ci.sh`. In a cloud session there's no dev library, music,
   display or sound card: stick to work the tests cover.
+- The name users see is "Roquette"; `roquette` only for the command,
+  packages, the beets plugin and its config section, paths and ids
+  (see "Conventions" in the plan).
 - Licence: MIT with REUSE headers; see "Licensing" in the plan.

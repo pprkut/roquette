@@ -545,6 +545,11 @@ One milestone each, in an order decided at the time:
 
 ## Conventions
 
+- **"Roquette" in what users see**: the README, window titles, menus,
+  dialogs, About, notifications, MPRIS' identity, the `.desktop` file's
+  name. Not the command, the package and module names, the beets plugin
+  and its `roquette:` config section, paths (`$XDG_*/roquette`), or
+  application and D-Bus ids. As in ren.
 - Keep semantically different changes in separate commits.
 - `just check` passes before each commit.
 - No virtual environment and no installation for development: roquette

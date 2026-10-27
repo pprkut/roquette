@@ -18,7 +18,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.parse_args(argv)
-    print("roquette can't play anything yet; see docs/PLAN.md.")
+    print("Roquette can't play anything yet; see docs/PLAN.md.")
     return 0
 
 
