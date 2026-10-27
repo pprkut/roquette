@@ -35,12 +35,12 @@ UI, GStreamer playback).
 - Never use real ListenBrainz/Last.fm credentials in tests or the
   development config.
 - Before committing: `just check` (everything CI runs that doesn't need a
-  display; tools that aren't installed are skipped locally).
+  display; tools that aren't installed are skipped locally). Tests are
+  optional in phase 1 (spikes), mandatory from phase 2 on — but follow
+  "Designing for testability" in the plan from the start.
 - No venv, no `pip install` on the development machine: run from the
   checkout (`python3 -m roquette`); dependencies and tools are system
   packages. Only CI and cloud sessions install with pip, through
   `scripts/setup-ci.sh`. In a cloud session there's no dev library, music,
-  display or sound card: stick to work the tests cover. Tests are optional in phase 1 (spikes), mandatory from
-  phase 2 on — but follow "Designing for testability" in the plan from the
-  start.
+  display or sound card: stick to work the tests cover.
 - Licence: MIT with REUSE headers; see "Licensing" in the plan.
