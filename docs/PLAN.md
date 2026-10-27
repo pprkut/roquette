@@ -364,7 +364,7 @@ starts. Keep semantically different changes in separate commits.
 
 ### Phase 0 — Restart
 
-- **M0 — Scaffold.** `pyproject.toml` (Python ≥ 3.12; beets, slint,
+- **M0 — Scaffold.** *(done)* `pyproject.toml` (Python ≥ 3.12; beets, slint,
   PyGObject as dependencies; `roquette` and `beetsplug` packages; a `dev`
   dependency group for CI), ruff, mypy, pytest, `.editorconfig`,
   `typos.toml`, `justfile` (`just check` runs what CI runs), and the CI
