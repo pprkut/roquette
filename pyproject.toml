@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: Copyright 2017-2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roquette"
+description = "Music player for obsessive-compulsive music geeks, powered by beets"
+readme = "README.rst"
+license = "MIT"
+license-files = ["LICENSES/*"]
+authors = [{ name = "Heinz Wiesinger" }]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+# Ranges, no lock file; the oldest versions are tested through
+# ci/oldest.txt. A dependency is added with the code that uses it, so
+# deptry can check it.
+dependencies = [
+    "beets>=2.14",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/pprkut/roquette"
+
+[project.gui-scripts]
+roquette = "roquette.__main__:main"
+
+# The development tools, pinned so their findings don't change between
+# runs. Only CI and cloud sessions install them (scripts/setup-ci.sh);
+# locally they are system packages.
+[dependency-groups]
+test = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+]
+lint = [
+    "mypy==2.4.0",
+    "ruff==0.17.3",
+]
+audit = [
+    "deptry==0.25.1",
+    "pip-audit==2.10.1",
+    "pip-licenses==5.5.5",
+]
+package = [
+    "build==1.6.1",
+    "twine==7.0.0",
+    "validate-pyproject[all]==0.27",
+]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    { include-group = "audit" },
+    { include-group = "package" },
+]
+
+[tool.hatch.version]
+path = "roquette/__init__.py"
+
+# beetsplug is a namespace package shared with beets and its other
+# plugins: no __init__.py.
+[tool.hatch.build.targets.wheel]
+packages = ["roquette", "beetsplug"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/roquette",
+    "/beetsplug",
+    "/tests",
+    "/LICENSES",
+    "/README.rst",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "W",
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "SIM", # simplify
+    "PTH", # pathlib
+    "RUF",
+]
+
+[tool.mypy]
+strict = true
+files = ["roquette", "beetsplug", "tests"]
+# beetsplug is a namespace package.
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Run from the checkout, without installing.
+pythonpath = ["."]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["roquette", "beetsplug"]
+branch = true
