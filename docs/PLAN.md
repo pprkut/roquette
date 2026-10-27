@@ -620,6 +620,15 @@ The project stays **MIT**, like beets, and follows the
   The about dialog shows the attribution either way.
 - The fallback, PySide6, is LGPL; PyGObject and GStreamer are LGPL;
   dbus-fast, keyring, aiohttp/httpx are MIT/Apache/BSD. All fine with MIT.
+- beets brings **mutagen** (through mediafile) and **Unidecode**, which
+  are GPL-2.0-or-later: beets, MIT itself, is in the same position. As
+  roquette doesn't bundle its dependencies, its own code stays MIT; the
+  running program is under the GPL's terms, as with Slint's GPLv3.
+- Allowed licences for dependencies (`just licenses`, in CI): MIT, BSD,
+  Apache-2.0, ISC, MPL-2.0, LGPL, PSF, Zlib, Unlicense, CC0, and
+  GPL-2.0-or-later / GPL-3.0-or-later. Not allowed: GPL-2.0-only (it
+  can't be combined with GPLv3 code such as Slint's, or with Apache-2.0),
+  proprietary or non-commercial licences, and anything unclear.
 - ren's `.slint` components are GPL-3.0-or-later. Copies taken into
   roquette are relicensed as MIT by their copyright holder (Heinz, the
   sole author) in the commit that adds them, with a note where they came

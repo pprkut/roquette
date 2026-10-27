@@ -110,7 +110,7 @@ package:
 
 # Check the licences of the installed packages against the allowed ones (pip-licenses; see "Licensing" in docs/PLAN.md)
 licenses:
-    pip-licenses --from=mixed --partial-match --ignore-packages roquette --allow-only="MIT;BSD;Apache;ISC;Mozilla Public License 2.0;MPL-2.0;GNU Lesser General Public License;LGPL;Python Software Foundation;PSF-2.0;Zlib;Unlicense;CC0;The Unlicense"
+    pip-licenses --from=mixed --partial-match --ignore-packages roquette --allow-only="MIT;BSD;Apache;ISC;Mozilla Public License 2.0;MPL-2.0;GNU Lesser General Public License;LGPL;Python Software Foundation;PSF-2.0;Zlib;Unlicense;CC0;GPL-2.0-or-later;GPL-3.0-or-later;GNU General Public License v2 or later (GPLv2+);GNU General Public License v3 or later (GPLv3+)"
 
 # Check the installed packages for security advisories (pip-audit, OSV and PyPI)
 advisories:
