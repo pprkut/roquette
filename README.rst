@@ -1,3 +1,7 @@
+..
+   SPDX-FileCopyrightText: Copyright 2017-2026  Heinz Wiesinger, Amsterdam, The Netherlands
+   SPDX-License-Identifier: MIT
+
 Roquette is the music player for obsessive-compulsive music geeks, powered by
 beets (http://beets.io/).
 

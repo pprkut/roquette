@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright 2017-2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
 # general hidden files/directories
 .DS_Store
 .idea
