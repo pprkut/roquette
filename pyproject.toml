@@ -125,3 +125,7 @@ xfail_strict = true
 source = ["roquette", "beetsplug"]
 branch = true
 
+[tool.deptry]
+# Development scripts, not part of the package; they may use what beets
+# brings along (PyYAML).
+extend_exclude = ["scripts"]
