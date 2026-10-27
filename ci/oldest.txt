@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+# The oldest supported version of each runtime dependency: the lower end
+# of its range in pyproject.toml. CI tests them with
+# `scripts/setup-ci.sh --oldest`.
+beets==2.14.0

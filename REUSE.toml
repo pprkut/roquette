@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+version = 1
+
+# Tool configuration in JSON, which can't carry a header.
+[[annotations]]
+path = [".claude/settings.json"]
+SPDX-FileCopyrightText = "Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands"
+SPDX-License-Identifier = "CC0-1.0"

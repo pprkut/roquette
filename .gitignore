@@ -121,3 +121,6 @@ venv.bak/
 
 # The development copy of the beets data (`just dev-library`).
 /dev/
+
+# Claude Code settings of your own (the shared ones are in .claude/settings.json).
+/.claude/settings.local.json
