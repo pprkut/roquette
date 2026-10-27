@@ -582,7 +582,8 @@ One milestone each, in an order decided at the time:
     dependencies (`deptry`).
   - `code-tests.yml`, on every push and weekly: ruff check, ruff format,
     mypy, pytest with GStreamer from the runner's packages, for the
-    oldest supported Python (3.12) and the newest, and for the oldest
+    oldest supported Python (3.12) and the newest the dependencies
+    support (3.14, as beets 2.14 requires < 3.15), and for the oldest
     supported beets 2.x and the newest; coverage and JUnit results to
     Codecov (OIDC, tokenless for forks); building the sdist and wheel and
     checking them (`twine check`, `validate-pyproject`).

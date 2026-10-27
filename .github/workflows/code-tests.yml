@@ -33,14 +33,16 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.x"
+          python-version: "3.14"
       - run: scripts/setup-ci.sh
       - run: just lint
       - run: just format-check
       - run: just typecheck
 
   # The oldest supported Python with the oldest supported dependencies
-  # (ci/oldest.txt), and the newest of both. The tests run with
+  # (ci/oldest.txt), and the newest of both. The newest Python is the
+  # newest the dependencies support (beets 2.14: < 3.15), named exactly:
+  # "3.x" gives different versions on different runner images. The tests run with
   # coverage; the codecov job uploads it with the JUnit results.
   test:
     name: Tests (Python ${{ matrix.python }}, ${{ matrix.dependencies }} dependencies)
@@ -55,7 +57,7 @@ jobs:
           - python: "3.12"
             dependencies: oldest
             setup: --oldest
-          - python: "3.x"
+          - python: "3.14"
             dependencies: newest
             setup: ""
     steps:
@@ -138,6 +140,6 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.x"
+          python-version: "3.14"
       - run: scripts/setup-ci.sh
       - run: just package
