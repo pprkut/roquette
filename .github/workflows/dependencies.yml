@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+name: Dependencies
+
+# The dependencies' licences, security advisories, and unused, missing
+# and transitive-only dependencies: on every push, and weekly, as
+# advisories and new releases come without a commit.
+on:
+  push:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# A new push to a branch cancels the run for the one before; on master
+# every commit is checked to the end.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  # In one environment with roquette's dependencies and the development
+  # tools only (scripts/setup-ci.sh): the licence and advisory checks
+  # look at every installed package.
+  dependencies:
+    name: Licenses, advisories, deptry
+    # Not on a fork's schedule.
+    if: github.event_name != 'schedule' || !github.event.repository.fork
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.x"
+      - run: scripts/setup-ci.sh
+      - run: just licenses
+      - run: just advisories
+      - run: just deptry

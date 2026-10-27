@@ -1,0 +1,143 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+name: Code Tests
+
+# On every push, so work on feature branches is checked before review,
+# and weekly, for new releases of the dependencies.
+on:
+  push:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+# A new push to a branch cancels the run for the one before; on master
+# every commit is checked to the end.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  lint:
+    name: Lint, format, types
+    # Not on a fork's schedule.
+    if: github.event_name != 'schedule' || !github.event.repository.fork
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.x"
+      - run: scripts/setup-ci.sh
+      - run: just lint
+      - run: just format-check
+      - run: just typecheck
+
+  # The oldest supported Python with the oldest supported dependencies
+  # (ci/oldest.txt), and the newest of both. The tests run with
+  # coverage; the codecov job uploads it with the JUnit results.
+  test:
+    name: Tests (Python ${{ matrix.python }}, ${{ matrix.dependencies }} dependencies)
+    if: github.event_name != 'schedule' || !github.event.repository.fork
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.12"
+            dependencies: oldest
+            setup: --oldest
+          - python: "3.x"
+            dependencies: newest
+            setup: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: scripts/setup-ci.sh ${{ matrix.setup }}
+      - run: just test-coverage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        # Also the results of failed tests.
+        if: ${{ !cancelled() }}
+        with:
+          name: test-results-${{ matrix.dependencies }}
+          path: |
+            build/junit.xml
+            build/coverage.xml
+          if-no-files-found: error
+          retention-days: 7
+
+  # The test results and coverage to Codecov, by OIDC, in a job of its
+  # own: the right to an OIDC token (id-token: write) never meets the
+  # job that runs roquette's code. The results also of failed tests, the
+  # coverage only of passing ones. A failed upload shows, but doesn't
+  # fail the run.
+  codecov:
+    name: Upload to Codecov (${{ matrix.dependencies }} dependencies)
+    needs: test
+    if: ${{ !cancelled() && needs.test.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write # Codecov's upload by OIDC
+    strategy:
+      matrix:
+        dependencies: [oldest, newest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-results-${{ matrix.dependencies }}
+          path: build
+      - name: Upload the test results
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          report_type: test_results
+          files: build/junit.xml
+          disable_search: true
+          flags: ${{ matrix.dependencies }}
+          # Pull requests from forks can't get an OIDC token and fall
+          # back to tokenless uploads, which Codecov allows for public
+          # repositories.
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          fail_ci_if_error: true
+      - name: Upload the coverage
+        if: ${{ needs.test.result == 'success' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: build/coverage.xml
+          disable_search: true
+          flags: ${{ matrix.dependencies }}
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          fail_ci_if_error: true
+
+  # The sdist and the wheel build, and their metadata is valid.
+  package:
+    name: Package
+    if: github.event_name != 'schedule' || !github.event.repository.fork
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.x"
+      - run: scripts/setup-ci.sh
+      - run: just package
