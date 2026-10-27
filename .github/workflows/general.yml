@@ -30,7 +30,9 @@ jobs:
       - uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
 
   # The files against .editorconfig: line ends, final newlines, trailing
-  # whitespace, tabs.
+  # whitespace, tabs. Not the indentation's width
+  # (.editorconfig-checker.json): ruff checks Python's, and continued
+  # list items in docstrings and comments aren't multiples of it.
   editorconfig:
     name: EditorConfig compliance
     runs-on: ubuntu-latest

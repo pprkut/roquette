@@ -5,6 +5,6 @@ version = 1
 
 # Tool configuration in JSON, which can't carry a header.
 [[annotations]]
-path = [".claude/settings.json"]
+path = [".claude/settings.json", ".editorconfig-checker.json"]
 SPDX-FileCopyrightText = "Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands"
 SPDX-License-Identifier = "CC0-1.0"
