@@ -118,3 +118,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# The development copy of the beets data (`just dev-library`).
+/dev/
