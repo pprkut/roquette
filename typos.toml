@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+# Exceptions for typos-cli (`just typos`): words it takes for misspellings,
+# and files whose words aren't ours (e.g. recorded responses in tests).
+[default.extend-words]
+
+[files]
+extend-exclude = []

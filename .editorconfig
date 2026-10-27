@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: CC0-1.0
+
+# https://EditorConfig.org
+
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+[{*.py,*.pyi,*.slint,*.toml,*.sh,justfile}]
+indent_style = space
+indent_size = 4
+
+[{*.yml,*.yaml,*.json}]
+indent_style = space
+indent_size = 2
+
+[{*.md,*.rst,*.html,*.svg,*.xml}]
+indent_style = space
+
+# Not ours to format: the licence texts.
+[LICENSES/**]
+indent_style = unset
+indent_size = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
