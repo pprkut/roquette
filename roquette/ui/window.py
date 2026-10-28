@@ -64,6 +64,7 @@ class MainWindow:
         self.cover_grid: CoverGrid | None = None
         self.cover_model: CoverModel | None = None
         self._cover_columns = 1
+        self._cover_cells_shown = 0
         self._album_tracks: dict[int, list[Track]] | None = None
 
         self.pane = PlaylistPane(placeholder_groups())
@@ -89,6 +90,7 @@ class MainWindow:
         w.track_menu = self._track_menu
         w.track_drag_data = self._track_drag_data
         w.cover_columns_changed = self._cover_columns_changed
+        w.cover_cells_shown_changed = self._cover_cells_shown_changed
         w.cover_select = self._cover_select
         w.cover_activate = self._cover_activate
         w.cover_navigate = self._cover_navigate
@@ -161,6 +163,7 @@ class MainWindow:
                 )
                 # Given to Slint empty, then filled (see LazyModel).
                 self.window.cover_rows = self.cover_model
+                self.cover_model.set_cells_shown(self._cover_cells_shown)
                 self.cover_model.set_columns(self._cover_columns)
         elif self.cover_model is not None:
             # Covers that were waiting to load aren't shown any more.
@@ -208,6 +211,11 @@ class MainWindow:
         self._cover_columns = columns
         if self.cover_model is not None and columns != self.cover_model.columns:
             self.cover_model.set_columns(columns)
+
+    def _cover_cells_shown_changed(self, cells: int) -> None:
+        self._cover_cells_shown = cells
+        if self.cover_model is not None:
+            self.cover_model.set_cells_shown(cells)
 
     def _cover_select(self, index: int) -> None:
         if self.cover_grid is not None:

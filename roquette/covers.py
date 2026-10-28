@@ -116,9 +116,10 @@ class CoverLoader[K: Hashable]:
 
     Only the newest `max_pending` requests are kept: while the user
     scrolls, covers that scrolled out of view again before their turn are
-    dropped. `deliver` is called on the worker thread with the key and the
-    pixels (None if the cover can't be read); it hands them to the event
-    loop.
+    dropped. The limit must be at least the number of covers on screen
+    (`set_max_pending`), or some of those are dropped, too. `deliver` is
+    called on the worker thread with the key and the pixels (None if the
+    cover can't be read); it hands them to the event loop.
     """
 
     def __init__(
@@ -150,6 +151,10 @@ class CoverLoader[K: Hashable]:
             while len(self._pending) > self._max_pending:
                 self._pending.popitem(last=False)
             self._wake.notify()
+
+    def set_max_pending(self, max_pending: int) -> None:
+        with self._wake:
+            self._max_pending = max_pending
 
     def cancel_all(self) -> None:
         with self._wake:
