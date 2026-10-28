@@ -11,7 +11,7 @@
 #
 # Usage: scripts/measure.sh [VARIANT...]
 #   VARIANT: a Slint renderer with the winit backend: software, femtovg,
-#   skia (Skia on OpenGL) or skia-software. Default: software femtovg skia.
+#   skia (Skia on OpenGL) or skia-software. Default: femtovg software skia.
 #
 # Environment:
 #   BEETSDIR      the beets data to measure with (default dev/beets, the
@@ -46,7 +46,7 @@ OUT_DIR=${OUT_DIR:-build/measure/$(date +%Y%m%d-%H%M%S)}
 
 variants=("$@")
 if [[ ${#variants[@]} -eq 0 ]]; then
-    variants=(software femtovg skia)
+    variants=(femtovg software skia)
 fi
 for v in "${variants[@]}"; do
     case $v in

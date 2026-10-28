@@ -17,7 +17,7 @@ dev-library *args:
 fake-library *args:
     python3 -I scripts/fake-library.py {{args}}
 
-# Measure startup, memory and CPU of the window (needs a graphical session); variants: software femtovg skia skia-software
+# Measure startup, memory and CPU of the window (needs a graphical session); variants: femtovg software skia skia-software
 measure *variants:
     scripts/measure.sh {{variants}}
 
