@@ -33,6 +33,9 @@ GStreamer. It runs from the checkout, without installing; tasks are recipes of a
   Development uses this copy: the live library is only read, never changed.
   Music files are never written.
 - ``just run`` starts Roquette on that copy.
+- ``just fake-library`` makes a fake library of the same size with generated
+  covers in ``build/fake-library``, for running Roquette without one
+  (``BEETSDIR=build/fake-library/beets``).
 - ``just check`` runs the checks CI runs (ruff, mypy, pytest, REUSE, typos, …);
   tools that aren't installed are skipped locally.
 
