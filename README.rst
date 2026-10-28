@@ -18,7 +18,8 @@ of looking at a collection.
 Current status
 --------------
 
-Roquette is being restarted and can't play music yet. The roadmap is in
+Roquette is being restarted. It plays a release, gapless and with
+ReplayGain, when you double-click it, and not much more yet. The roadmap is in
 `docs/PLAN.md <docs/PLAN.md>`_.
 
 Development
@@ -32,12 +33,13 @@ GStreamer. It runs from the checkout, without installing; tasks are recipes of a
 - ``just dev-library`` copies your beets config and library into ``dev/beets``.
   Development uses this copy: the live library is only read, never changed.
   Music files are never written.
-- ``just run`` starts Roquette on that copy.
+- ``just run`` starts Roquette on that copy; ``just run --play QUERY`` plays
+  what a beets query finds (``just run --help`` lists the options).
 - ``just fake-library`` makes a fake library of the same size with generated
   covers in ``build/fake-library``, for running Roquette without one
   (``BEETSDIR=build/fake-library/beets``).
-- ``just measure`` measures startup, memory and CPU of the window; it needs a
-  graphical session.
+- ``just measure`` measures startup, memory, CPU and wake-ups of the window,
+  idle, scrolling and playing; it needs a graphical session.
 - ``just check`` runs the checks CI runs (ruff, mypy, pytest, REUSE, typos, …);
   tools that aren't installed are skipped locally.
 
