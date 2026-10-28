@@ -634,7 +634,9 @@ The project stays **MIT**, like beets, and follows the
   Apache-2.0, ISC, MPL-2.0, LGPL, PSF, Zlib, Unlicense, CC0, and
   GPL-2.0-or-later / GPL-3.0-or-later. Not allowed: GPL-2.0-only (it
   can't be combined with GPLv3 code such as Slint's, or with Apache-2.0),
-  proprietary or non-commercial licences, and anything unclear.
+  proprietary or non-commercial licences, and anything unclear. Slint is
+  the one exception, decided above: its metadata names GPLv3 and its
+  proprietary licences, so `just licenses` leaves it out.
 - ren's `.slint` components are GPL-3.0-or-later. Copies taken into
   roquette are relicensed as MIT by their copyright holder (Heinz, the
   sole author) in the commit that adds them, with a note where they came

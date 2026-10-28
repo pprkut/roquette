@@ -116,9 +116,9 @@ package:
     python3 -m build --outdir build/dist .
     twine check --strict build/dist/*
 
-# Check the licences of the installed packages against the allowed ones (pip-licenses; see "Licensing" in docs/PLAN.md)
+# Check the licences of the installed packages against the allowed ones (pip-licenses; see "Licensing" in docs/PLAN.md); Slint's licences are decided there
 licenses:
-    pip-licenses --from=mixed --partial-match --ignore-packages roquette --allow-only="MIT;BSD;Apache;ISC;Mozilla Public License 2.0;MPL-2.0;GNU Lesser General Public License;LGPL;Python Software Foundation;PSF-2.0;Zlib;Unlicense;CC0;GPL-2.0-or-later;GPL-3.0-or-later;GNU General Public License v2 or later (GPLv2+);GNU General Public License v3 or later (GPLv3+)"
+    pip-licenses --from=mixed --partial-match --ignore-packages roquette slint --allow-only="MIT;BSD;Apache;ISC;Mozilla Public License 2.0;MPL-2.0;GNU Lesser General Public License;LGPL;Python Software Foundation;PSF-2.0;Zlib;Unlicense;CC0;GPL-2.0-or-later;GPL-3.0-or-later;GNU General Public License v2 or later (GPLv2+);GNU General Public License v3 or later (GPLv3+)"
 
 # Check the installed packages for security advisories (pip-audit, OSV and PyPI)
 advisories:
