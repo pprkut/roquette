@@ -40,6 +40,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="MIB",
         help="memory for decoded covers (default: %(default)s MiB)",
     )
+    playback = parser.add_argument_group("playback (until the settings, M4)")
+    playback.add_argument(
+        "--play",
+        metavar="QUERY",
+        help="play the tracks a beets query finds, once the library is loaded",
+    )
+    playback.add_argument(
+        "--audio-sink",
+        metavar="ELEMENT",
+        help="the GStreamer audio sink (default: autoaudiosink's choice)",
+    )
+    playback.add_argument(
+        "--replaygain",
+        choices=["auto", "track", "album", "off"],
+        default="auto",
+        help="album gain for tracks played next to others of their release"
+        " (auto), or always track or album gain, or none (default: %(default)s)",
+    )
+    playback.add_argument(
+        "--replaygain-source",
+        choices=["beets", "tags"],
+        default="beets",
+        help="the ReplayGain values of the beets database, or of the files'"
+        " tags; without values in beets, the tags count (default: %(default)s)",
+    )
+    playback.add_argument(
+        "--preamp",
+        type=float,
+        default=0.0,
+        metavar="DB",
+        help="added to the ReplayGain (default: %(default)s)",
+    )
     measuring = parser.add_argument_group("measuring (scripts/measure.sh)")
     measuring.add_argument(
         "--measure", action="store_true", help="print startup timings to stderr"
