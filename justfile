@@ -13,6 +13,10 @@ run *args:
 dev-library *args:
     python3 -I scripts/dev-library.py {{args}}
 
+# Make a fake beets library in build/fake-library, for running roquette without the dev library (BEETSDIR=build/fake-library/beets)
+fake-library *args:
+    python3 -I scripts/fake-library.py {{args}}
+
 # Install what CI and cloud sessions need (system libraries with apt, Python packages with pip); not for the development machine
 setup-ci:
     scripts/setup-ci.sh
