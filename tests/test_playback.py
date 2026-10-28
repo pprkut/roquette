@@ -337,3 +337,29 @@ def test_missing_file(tmp_path: Path) -> None:
 
     asyncio.run(main())
     assert errors[0][0] is missing
+
+
+def test_missing_next_file(tmp_path: Path, album: list[Audio]) -> None:
+    errors: list[tuple[Source | None, str]] = []
+    first = Source(album[2].path)
+    missing = Source(tmp_path / "missing.flac")
+
+    async def main() -> None:
+        loop = asyncio.get_running_loop()
+        engine = Engine(Capture().sink)
+        engine.attach(loop)
+        failed = loop.create_future()
+
+        def error(source: Source | None, message: str) -> None:
+            errors.append((source, message))
+            if not failed.done():
+                failed.set_result(None)
+
+        engine.on_error = error
+        # The next file is opened while the first still plays.
+        engine.play([first, missing])
+        await asyncio.wait_for(failed, 10)
+        engine.close()
+
+    asyncio.run(main())
+    assert errors[0][0] is missing

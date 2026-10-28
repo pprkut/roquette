@@ -297,16 +297,43 @@ class Engine:
         elif kind == Gst.MessageType.ERROR:
             error, debug = message.parse_error()
             log.debug("%s", debug)
-            # Before anything is audible, the error is the first file's.
-            with self._lock:
-                first = self._pending[0].source if self._pending else None
-            source = self._current.source if self._current else first
+            source = self._error_source(message.src)
+            # The next file is opened once the current one has been read,
+            # seconds before its end, so stopping for an error in the next
+            # file cuts the current one short. M2 skips the file instead.
             self.stop()
             if self.on_error is not None:
                 self.on_error(source, error.message)
         elif kind == Gst.MessageType.WARNING:
             warning, debug = message.parse_warning()
             log.warning("%s (%s)", warning.message, debug)
+
+    def _error_source(self, element: Any) -> Source | None:
+        """The source an error is about.
+
+        The element that failed says which file it was reading where it
+        knows: a `filesrc` by its location, a `urisourcebin` by its URI.
+        Otherwise (a decoder, say) it's the audible source's, or before
+        anything is audible the first file's.
+        """
+        with self._lock:
+            queued = list(self._pending)
+        if self._current is not None:
+            queued.insert(0, self._current)
+        while element is not None and element is not self._playbin:
+            uri = None
+            if element.find_property("location") is not None:
+                location = element.get_property("location")
+                uri = Gst.filename_to_uri(location) if location else None
+            elif _factory_name(element) == "urisourcebin":
+                uri = element.get_property("uri")
+            if uri:
+                key = stream_key(uri)
+                for candidate in queued:
+                    if candidate.key == key:
+                        return candidate.source
+            element = element.get_parent()
+        return queued[0].source if queued else None
 
     # Streaming threads
 
@@ -385,6 +412,11 @@ class Engine:
 
     def _set_gain(self, replaygain: ReplayGain | None, mode: Mode) -> None:
         self._volume.props.volume = factor(replaygain, mode, self.preamp, self.fallback)
+
+
+def _factory_name(element: Any) -> str | None:
+    factory = element.get_factory()
+    return str(factory.get_name()) if factory is not None else None
 
 
 def _tags_replaygain(tags: Any) -> ReplayGain:
