@@ -4,6 +4,8 @@
 # Exceptions for typos-cli (`just typos`): words it takes for misspellings,
 # and files whose words aren't ours (e.g. recorded responses in tests).
 [default.extend-words]
+# A track title (Aphex Twin) in the playlist placeholder.
+Tha = "Tha"
 
 [files]
 extend-exclude = []
