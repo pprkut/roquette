@@ -26,6 +26,8 @@ classifiers = [
 # deptry can check it.
 dependencies = [
     "beets>=2.14",
+    # Cover images, decoded and scaled to display size off the UI thread.
+    "Pillow>=10.1",
 ]
 dynamic = ["version"]
 
@@ -107,6 +109,8 @@ select = [
     "PTH", # pathlib
     "RUF",
 ]
+# Typography in user-visible strings and docs.
+allowed-confusables = ["–", "×"]
 
 [tool.mypy]
 strict = true
