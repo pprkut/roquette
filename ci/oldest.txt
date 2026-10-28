@@ -6,3 +6,5 @@
 # `scripts/setup-ci.sh --oldest`.
 beets==2.14.0
 Pillow==10.1.0
+PyGObject==3.50.0
+slint==1.18.1b1

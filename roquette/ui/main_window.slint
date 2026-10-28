@@ -1,0 +1,333 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+
+import { Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Splitter } from "splitter.slint";
+import { TrackRow, TrackTable } from "track_table.slint";
+import { CoverCell, CoverGrid, CoverRow } from "cover_grid.slint";
+import { PlaylistPane, PlaylistRow, PlaylistRowKind } from "playlist_pane.slint";
+import { TransportBar } from "transport_bar.slint";
+
+export { Theme, TrackRow, CoverCell, CoverRow, PlaylistRow, PlaylistRowKind }
+
+component NavEntry inherits Rectangle {
+    in property <string> title;
+    in property <bool> selected;
+    in property <bool> focused;
+    callback clicked();
+
+    height: 30px;
+
+    Rectangle {
+        x: 4px;
+        width: parent.width - 8px;
+        border-radius: Theme.selection-radius;
+        background: root.selected ? Theme.selection(root.focused) : touch.has-hover ? Theme.hover : transparent;
+        border-width: root.selected && root.focused ? 1px : 0px;
+        border-color: Theme.selection-border;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        x: 14px;
+        text: root.title;
+        vertical-alignment: center;
+        color: Palette.foreground;
+    }
+}
+
+// The modules, one entry each.
+component Navigation inherits FocusScope {
+    in property <[string]> modules;
+    in property <int> current;
+    in property <string> status;
+    callback select(index: int);
+
+    key-pressed(event) => {
+        if event.text == Key.UpArrow {
+            root.select(max(0, root.current - 1));
+        } else if event.text == Key.DownArrow {
+            root.select(min(root.modules.length - 1, root.current + 1));
+        } else {
+            return reject;
+        }
+        accept
+    }
+
+    VerticalLayout {
+        padding-top: 6px;
+        padding-bottom: 6px;
+
+        for title[i] in root.modules: NavEntry {
+            title: title;
+            selected: i == root.current;
+            focused: root.has-focus;
+            clicked => {
+                root.focus();
+                root.select(i);
+            }
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        Text {
+            x: 14px;
+            text: root.status;
+            wrap: word-wrap;
+            font-size: 0.85rem;
+            color: Palette.foreground;
+            opacity: Theme.dim;
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Roquette";
+    preferred-width: 1280px;
+    preferred-height: 800px;
+    background: Palette.background;
+
+    // "light" or "dark" overrides the desktop's colour scheme.
+    in property <string> color-scheme-override;
+    changed color-scheme-override => {
+        if root.color-scheme-override == "dark" {
+            Palette.color-scheme = ColorScheme.dark;
+        } else if root.color-scheme-override == "light" {
+            Palette.color-scheme = ColorScheme.light;
+        }
+    }
+
+    // Navigation
+    in property <[string]> modules: ["Tracks", "Covers"];
+    in-out property <int> module: 0;
+    in property <string> status;
+    in-out property <length> nav-width: 160px;
+    callback module-selected(index: int);
+
+    // Tracks
+    in property <[TrackRow]> track-rows;
+    in property <int> track-current: -1;
+    in property <int> track-sort-column: 0;
+    in property <bool> track-sort-ascending: true;
+    callback track-select(row: int);
+    callback track-activate(row: int);
+    callback track-sort(column: int);
+    callback track-navigate(key: string, page: int);
+    callback track-menu(row: int, action: string);
+    pure callback track-drag-data(row: int) -> data-transfer;
+
+    // Covers
+    in property <[CoverRow]> cover-rows;
+    in property <int> cover-current: -1;
+    // The physical pixels per logical pixel, for decoding covers to the
+    // size they're shown at.
+    out property <float> scale-factor: 1px / 1phx;
+    callback cover-columns-changed(columns: int);
+    callback cover-select(index: int);
+    callback cover-activate(index: int);
+    callback cover-navigate(key: string, columns: int);
+    pure callback cover-drag-data(index: int) -> data-transfer;
+
+    // Playlist
+    in property <[PlaylistRow]> playlist-rows;
+    in property <int> playlist-current: -1;
+    in-out property <length> playlist-width: 340px;
+    callback playlist-select(row: int);
+    callback playlist-toggle(row: int);
+    callback playlist-choose(row: int);
+    callback playlist-navigate(key: string);
+    callback playlist-dropped(data: data-transfer);
+
+    // Transport
+    in property <string> now-title;
+    in property <string> now-artist;
+    in property <string> now-rating;
+    in property <bool> playing;
+    in property <float> position;
+    in property <float> duration;
+    in property <string> position-text;
+    in property <string> duration-text;
+    callback play-pause();
+    callback previous();
+    callback next();
+    callback seek(position: float);
+
+    // The autoscroll measurement: scrolls the module shown from top to
+    // bottom at `autoscroll-speed`, then calls `autoscroll-finished`.
+    in-out property <bool> autoscrolling;
+    in property <length> autoscroll-speed: 8000px;
+    callback autoscroll-finished();
+
+    VerticalLayout {
+        HorizontalLayout {
+            vertical-stretch: 1;
+
+            Navigation {
+                width: root.nav-width;
+                modules: root.modules;
+                current: root.module;
+                status: root.status;
+                select(index) => {
+                    root.module = index;
+                    root.module-selected(index);
+                }
+            }
+
+            Splitter {
+                width: 6px;
+                size <=> root.nav-width;
+                min-size: 100px;
+                max-size: 400px;
+            }
+
+            // Only the module shown exists; the other one is created when
+            // it's selected.
+            Rectangle {
+                horizontal-stretch: 1;
+
+                if root.module == 0: Rectangle {
+                    tracks := TrackTable {
+                        rows: root.track-rows;
+                        current: root.track-current;
+                        sort-column: root.track-sort-column;
+                        sort-ascending: root.track-sort-ascending;
+                        init => {
+                            self.focus();
+                        }
+                        select(row) => {
+                            root.track-select(row);
+                        }
+                        activate(row) => {
+                            root.track-activate(row);
+                        }
+                        sort(column) => {
+                            root.track-sort(column);
+                        }
+                        navigate(key, page) => {
+                            root.track-navigate(key, page);
+                        }
+                        menu(row, action) => {
+                            root.track-menu(row, action);
+                        }
+                        drag-data(row) => {
+                            return root.track-drag-data(row);
+                        }
+                    }
+
+                    Timer {
+                        interval: 16ms;
+                        running: root.autoscrolling;
+                        triggered => {
+                            if -tracks.content-y >= tracks.scroll-range {
+                                root.autoscrolling = false;
+                                root.autoscroll-finished();
+                            } else {
+                                tracks.content-y = max(-tracks.scroll-range, tracks.content-y - root.autoscroll-speed * self.interval / 1s);
+                            }
+                        }
+                    }
+                }
+
+                if root.module == 1: Rectangle {
+                    covers := CoverGrid {
+                        rows: root.cover-rows;
+                        current: root.cover-current;
+                        init => {
+                            self.focus();
+                            root.cover-columns-changed(self.columns);
+                        }
+                        columns-changed(columns) => {
+                            root.cover-columns-changed(columns);
+                        }
+                        select(index) => {
+                            root.cover-select(index);
+                        }
+                        activate(index) => {
+                            root.cover-activate(index);
+                        }
+                        navigate(key, columns) => {
+                            root.cover-navigate(key, columns);
+                        }
+                        drag-data(index) => {
+                            return root.cover-drag-data(index);
+                        }
+                    }
+
+                    Timer {
+                        interval: 16ms;
+                        running: root.autoscrolling;
+                        triggered => {
+                            if -covers.content-y >= covers.scroll-range {
+                                root.autoscrolling = false;
+                                root.autoscroll-finished();
+                            } else {
+                                covers.content-y = max(-covers.scroll-range, covers.content-y - root.autoscroll-speed * self.interval / 1s);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Splitter {
+                width: 6px;
+                resizes-next: true;
+                size <=> root.playlist-width;
+                min-size: 200px;
+                max-size: 700px;
+            }
+
+            PlaylistPane {
+                width: root.playlist-width;
+                rows: root.playlist-rows;
+                current: root.playlist-current;
+                select(row) => {
+                    root.playlist-select(row);
+                }
+                toggle(row) => {
+                    root.playlist-toggle(row);
+                }
+                choose(row) => {
+                    root.playlist-choose(row);
+                }
+                navigate(key) => {
+                    root.playlist-navigate(key);
+                }
+                dropped(data) => {
+                    root.playlist-dropped(data);
+                }
+            }
+        }
+
+        TransportBar {
+            title: root.now-title;
+            artist: root.now-artist;
+            rating: root.now-rating;
+            playing: root.playing;
+            position: root.position;
+            duration: root.duration;
+            position-text: root.position-text;
+            duration-text: root.duration-text;
+            play-pause => {
+                root.play-pause();
+            }
+            previous => {
+                root.previous();
+            }
+            next => {
+                root.next();
+            }
+            seek(position) => {
+                root.seek(position);
+            }
+        }
+    }
+}
+

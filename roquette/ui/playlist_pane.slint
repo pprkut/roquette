@@ -1,0 +1,301 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+
+import { ListView, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export enum PlaylistRowKind { release, track, version }
+
+export struct PlaylistRow {
+    kind: PlaylistRowKind,
+    // Release: its title; track: its title; version: its release.
+    title: string,
+    // Release: album artist and year; track: artist (where it differs from
+    // the album artist) and length; version: format and length.
+    detail: string,
+    number: string,
+    rating: string,
+    // Tracks: how many versions the recording has in the library.
+    versions: int,
+    expanded: bool,
+    // Versions: the one that plays.
+    chosen: bool,
+    playing: bool,
+}
+
+component ReleaseHeader inherits Rectangle {
+    in property <PlaylistRow> entry;
+
+    height: 60px;
+
+    HorizontalLayout {
+        padding: 6px;
+        padding-top: 10px;
+        spacing: 8px;
+
+        Rectangle {
+            width: 44px;
+            height: 44px;
+            background: Theme.cover-placeholder;
+
+            Text {
+                text: "♪";
+                font-size: 20px;
+                color: Palette.foreground;
+                opacity: 0.3;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: root.entry.title;
+                overflow: elide;
+                font-weight: 700;
+                color: Palette.foreground;
+            }
+
+            Text {
+                text: root.entry.detail;
+                overflow: elide;
+                font-size: 0.85rem;
+                color: Palette.foreground;
+                opacity: Theme.dim;
+            }
+        }
+    }
+}
+
+component TrackEntry inherits Rectangle {
+    in property <PlaylistRow> entry;
+    in property <bool> selected;
+    in property <bool> focused;
+    callback clicked();
+    callback toggle();
+
+    height: 42px;
+
+    Rectangle {
+        x: 2px;
+        width: parent.width - 4px;
+        border-radius: Theme.selection-radius;
+        background: root.selected ? Theme.selection(root.focused) : touch.has-hover ? Theme.hover : transparent;
+        border-width: root.selected && root.focused ? 1px : 0px;
+        border-color: Theme.selection-border;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.row-padding;
+        padding-right: Theme.row-padding;
+        spacing: 6px;
+
+        Text {
+            width: 26px;
+            text: root.entry.playing ? "▶" : root.entry.number;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            color: root.entry.playing ? Palette.accent-background : Palette.foreground;
+            opacity: root.entry.playing ? 1 : Theme.dim;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.entry.title;
+                    overflow: elide;
+                    font-weight: root.entry.playing ? 600 : 400;
+                    color: Palette.foreground;
+                }
+
+                Text {
+                    text: root.entry.rating;
+                    color: Theme.rating;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.entry.detail;
+                    overflow: elide;
+                    font-size: 0.85rem;
+                    color: Palette.foreground;
+                    opacity: Theme.dim;
+                }
+
+                if root.entry.versions > 1: Rectangle {
+                    width: versions-text.preferred-width + 8px;
+                    border-radius: 3px;
+                    background: versions-touch.has-hover ? Theme.hover : transparent;
+
+                    versions-text := Text {
+                        text: (root.entry.expanded ? "▾ " : "▸ ") + root.entry.versions + " versions";
+                        font-size: 0.85rem;
+                        color: Palette.accent-background;
+                        horizontal-alignment: center;
+                    }
+
+                    versions-touch := TouchArea {
+                        clicked => {
+                            root.toggle();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component VersionEntry inherits Rectangle {
+    in property <PlaylistRow> entry;
+    callback clicked();
+
+    height: 26px;
+    background: touch.has-hover ? Theme.hover : transparent;
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 38px;
+        padding-right: Theme.row-padding;
+        spacing: 6px;
+
+        Text {
+            text: root.entry.chosen ? "●" : "○";
+            vertical-alignment: center;
+            color: Palette.accent-background;
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            text: root.entry.title;
+            overflow: elide;
+            vertical-alignment: center;
+            font-size: 0.85rem;
+            color: Palette.foreground;
+        }
+
+        Text {
+            text: root.entry.detail;
+            vertical-alignment: center;
+            font-size: 0.85rem;
+            color: Palette.foreground;
+            opacity: Theme.dim;
+        }
+    }
+}
+
+// The live playlist: releases with their tracks, tracks with the versions
+// of their recording. Rows have different heights per kind.
+export component PlaylistPane inherits FocusScope {
+    in property <[PlaylistRow]> rows;
+    in property <int> current: -1;
+
+    callback select(row: int);
+    // Expand or collapse the versions of a track.
+    callback toggle(row: int);
+    // Play this version of the track above it.
+    callback choose(row: int);
+    // A navigation key: "up", "down", "left" or "right".
+    callback navigate(key: string);
+    callback dropped(data: data-transfer);
+
+    key-pressed(event) => {
+        if event.text == Key.UpArrow {
+            root.navigate("up");
+        } else if event.text == Key.DownArrow {
+            root.navigate("down");
+        } else if event.text == Key.LeftArrow {
+            root.navigate("left");
+        } else if event.text == Key.RightArrow {
+            root.navigate("right");
+        } else {
+            return reject;
+        }
+        accept
+    }
+
+    Rectangle {
+        background: drop.has-drag ? Theme.hover : transparent;
+    }
+
+    VerticalLayout {
+        Rectangle {
+            height: Theme.row-height;
+
+            Text {
+                x: Theme.row-padding;
+                text: "Playlist";
+                font-weight: 600;
+                vertical-alignment: center;
+                color: Palette.foreground;
+            }
+
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.separator;
+            }
+        }
+
+        ListView {
+            for row[i] in root.rows: VerticalLayout {
+                // Each kind is its own element; the others aren't created,
+                // and the row takes the height of the one that is.
+                if row.kind == PlaylistRowKind.release: ReleaseHeader {
+                    entry: row;
+                }
+                if row.kind == PlaylistRowKind.track: TrackEntry {
+                    entry: row;
+                    selected: i == root.current;
+                    focused: root.has-focus;
+                    clicked => {
+                        root.focus();
+                        root.select(i);
+                    }
+                    toggle => {
+                        root.toggle(i);
+                    }
+                }
+                if row.kind == PlaylistRowKind.version: VersionEntry {
+                    entry: row;
+                    clicked => {
+                        root.choose(i);
+                    }
+                }
+            }
+        }
+    }
+
+    drop := DropArea {
+        can-drop(event) => {
+            return DragAction.copy;
+        }
+        dropped(event) => {
+            root.dropped(event.data);
+            return DragAction.copy;
+        }
+    }
+}

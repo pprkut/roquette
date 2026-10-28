@@ -25,8 +25,30 @@ if [ "${1:-}" = --oldest ]; then
     constraints=(--constraint ci/oldest.txt)
 fi
 
-# System libraries (apt) are added with the code that needs them:
-# GStreamer and PyGObject's build dependencies with the playback spike.
+# System libraries, added with the code that needs them:
+# - PyGObject is built from source: GObject Introspection (1.0 for the
+#   oldest supported PyGObject, 2.0 for newer ones) and cairo, for
+#   pycairo.
+# - GStreamer and its introspection data, with the base and good plugins.
+# - What the slint wheel loads at import (libinput) and for X11 windows.
+packages=(
+    libcairo2-dev
+    libgirepository-2.0-dev
+    libgirepository1.0-dev
+    pkg-config
+    gir1.2-gst-plugins-base-1.0
+    gir1.2-gstreamer-1.0
+    gstreamer1.0-plugins-base
+    gstreamer1.0-plugins-good
+    libinput10
+    libxkbcommon-x11-0
+)
+sudo=()
+if [ "$(id -u)" != 0 ]; then
+    sudo=(sudo)
+fi
+"${sudo[@]}" apt-get update --quiet --quiet
+"${sudo[@]}" apt-get install --quiet --quiet --yes --no-install-recommends "${packages[@]}"
 
 python=python3
 if [ "${CLAUDE_CODE_REMOTE:-}" = true ]; then

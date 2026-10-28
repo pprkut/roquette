@@ -7,22 +7,20 @@
 import { ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
-export enum ItemStatus { new, unread, read }
-
-export struct ItemRow {
+export struct TrackRow {
+    number: string,
     title: string,
-    feed: string,
-    author: string,
-    date: string,
-    status: ItemStatus,
-    starred: bool,
+    artist: string,
+    album: string,
+    length: string,
 }
 
-// Widths of the columns after the title, which takes the rest.
+// Widths of the columns other than the title, which takes the rest.
 struct ColumnWidths {
-    feed: length,
-    author: length,
-    date: length,
+    number: length,
+    artist: length,
+    album: length,
+    length: length,
 }
 
 component SortArrow inherits Path {
@@ -41,6 +39,7 @@ component HeaderCell inherits Rectangle {
     in property <string> text;
     in property <bool> sorted;
     in property <bool> ascending;
+    in property <TextHorizontalAlignment> alignment: left;
     callback clicked();
 
     background: touch.has-hover ? Theme.hover : transparent;
@@ -60,6 +59,7 @@ component HeaderCell inherits Rectangle {
             horizontal-stretch: 1;
             text: root.text;
             overflow: elide;
+            horizontal-alignment: root.alignment;
             vertical-alignment: center;
             color: Palette.foreground;
         }
@@ -100,23 +100,37 @@ component ColumnResizer inherits Rectangle {
     }
 }
 
-component ItemTableRow inherits Rectangle {
-    in property <ItemRow> entry;
+component Cell inherits HorizontalLayout {
+    in property <string> text;
+    in property <brush> color;
+    in property <TextHorizontalAlignment> text-alignment: left;
+    // Resizer handle plus the header cell's padding.
+    padding-left: 7px + Theme.row-padding;
+    padding-right: Theme.row-padding;
+
+    Text {
+        text: root.text;
+        overflow: elide;
+        horizontal-alignment: root.text-alignment;
+        vertical-alignment: center;
+        color: root.color;
+    }
+}
+
+component TrackTableRow inherits Rectangle {
+    in property <TrackRow> entry;
     in property <int> index;
     in property <bool> selected;
     in property <bool> focused;
     in property <ColumnWidths> widths;
-    // Two lines (title; feed, author and date) instead of table columns.
-    in property <bool> compact;
-    // Web pages can be opened in tabs (the `servo` feature).
-    in property <bool> tabs-available;
+    // What a drag from this row carries; asked for when a drag starts.
+    in property <data-transfer> drag-data;
     callback clicked();
+    callback double-clicked();
     // An entry of the context menu was activated.
     callback menu(action: string);
 
-    property <brush> text-color: root.entry.status == ItemStatus.new ? Theme.status-new : root.entry.status == ItemStatus.unread ? Theme.status-unread : Palette.foreground;
-
-    height: root.compact ? Theme.compact-row-height : Theme.row-height;
+    height: Theme.row-height;
     background: Math.mod(root.index, 2) == 1 ? Theme.alternate-row : transparent;
 
     Rectangle {
@@ -130,192 +144,121 @@ component ItemTableRow inherits Rectangle {
 
     menu-area := ContextMenuArea {
         Menu {
-            if root.tabs-available: MenuItem {
-                title: "Open Link in Tab";
+            MenuItem {
+                title: "Append to Playlist";
                 activated => {
-                    root.menu("open-tab");
+                    root.menu("append");
                 }
             }
             MenuItem {
-                title: "Open Link in External Browser";
+                title: "Play Next";
                 activated => {
-                    root.menu("open-browser");
-                }
-            }
-            MenuItem {
-                title: "Copy Link Address";
-                activated => {
-                    root.menu("copy-link");
-                }
-            }
-            MenuSeparator { }
-            if root.entry.status != ItemStatus.read: MenuItem {
-                title: "Mark as Read";
-                activated => {
-                    root.menu("mark-read");
-                }
-            }
-            if root.entry.status == ItemStatus.read: MenuItem {
-                title: "Mark as Unread";
-                activated => {
-                    root.menu("mark-unread");
-                }
-            }
-            MenuItem {
-                title: root.entry.starred ? "Remove Star" : "Star";
-                activated => {
-                    root.menu("toggle-star");
+                    root.menu("play-next");
                 }
             }
         }
 
-        touch := TouchArea {
-            clicked => {
-                root.clicked();
-            }
-            // A right click selects the row before its menu opens, so the
-            // menu is about the article shown. This TouchArea takes the
-            // click before the ContextMenuArea sees it.
-            pointer-event(event) => {
-                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+        DragArea {
+            data: root.drag-data;
+            allow-copy: true;
+
+            touch := TouchArea {
+                clicked => {
                     root.clicked();
-                    menu-area.show({ x: self.mouse-x, y: self.mouse-y });
+                }
+                double-clicked => {
+                    root.double-clicked();
+                }
+                // A right click selects the row before its menu opens.
+                pointer-event(event) => {
+                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                        root.clicked();
+                        menu-area.show({ x: self.mouse-x, y: self.mouse-y });
+                    }
                 }
             }
         }
     }
 
-    if root.compact: VerticalLayout {
-        padding-left: Theme.row-padding + 2px;
-        padding-right: Theme.row-padding + 2px;
-        alignment: center;
-        spacing: 2px;
-
-        HorizontalLayout {
-            spacing: 4px;
-
-            if root.entry.starred: Text {
-                text: "★";
-                color: Theme.starred;
-            }
-
-            Text {
-                horizontal-stretch: 1;
-                text: root.entry.title;
-                overflow: elide;
-                font-weight: root.entry.status == ItemStatus.read ? 400 : 600;
-                color: root.text-color;
-            }
+    HorizontalLayout {
+        Cell {
+            width: root.widths.number;
+            padding-left: Theme.row-padding;
+            text: root.entry.number;
+            color: Palette.foreground;
+            text-alignment: right;
         }
 
-        HorizontalLayout {
-            spacing: 8px;
-
-            Text {
-                horizontal-stretch: 1;
-                text: root.entry.author == "" ? root.entry.feed : "\{root.entry.feed} · \{root.entry.author}";
-                overflow: elide;
-                font-size: 0.85rem;
-                color: Palette.foreground;
-                opacity: 0.7;
-            }
-
-            Text {
-                text: root.entry.date;
-                font-size: 0.85rem;
-                color: Palette.foreground;
-                opacity: 0.7;
-            }
-        }
-    }
-
-    if !root.compact: HorizontalLayout {
-        padding-left: Theme.row-padding;
-
-        HorizontalLayout {
+        Cell {
             horizontal-stretch: 1;
-            spacing: 4px;
-            padding-right: Theme.row-padding;
             min-width: 0px;
-
-            if root.entry.starred: Text {
-                text: "★";
-                vertical-alignment: center;
-                color: Theme.starred;
-            }
-
-            Text {
-                horizontal-stretch: 1;
-                text: root.entry.title;
-                overflow: elide;
-                vertical-alignment: center;
-                color: root.text-color;
-            }
+            text: root.entry.title;
+            color: Palette.foreground;
         }
 
-        for cell in [
-            { text: root.entry.feed, width: root.widths.feed },
-            { text: root.entry.author, width: root.widths.author },
-            { text: root.entry.date, width: root.widths.date },
-        ]: HorizontalLayout {
-            width: cell.width;
-            // Resizer handle plus the header cell's padding.
-            padding-left: 7px + Theme.row-padding;
-            padding-right: Theme.row-padding;
+        Cell {
+            width: root.widths.artist;
+            text: root.entry.artist;
+            color: Palette.foreground;
+        }
 
-            Text {
-                text: cell.text;
-                overflow: elide;
-                vertical-alignment: center;
-                color: root.text-color;
-            }
+        Cell {
+            width: root.widths.album;
+            text: root.entry.album;
+            color: Palette.foreground;
+        }
+
+        Cell {
+            width: root.widths.length;
+            text: root.entry.length;
+            color: Palette.foreground;
+            text-alignment: right;
         }
     }
 }
 
-// The items of the selected feed or folder: as a table with sortable,
-// resizable columns, or in compact mode as a list of two-line rows. Rows come from a lazy model; sorting and keyboard
-// navigation are handled by the view model.
-export component ItemTable inherits FocusScope {
-    in property <[ItemRow]> rows;
+// Tracks as a table with sortable, resizable columns. Rows come from a
+// lazy model; sorting and keyboard navigation are handled by the view
+// model.
+export component TrackTable inherits FocusScope {
+    in property <[TrackRow]> rows;
     in property <int> current: -1;
-    // Column the list is sorted by: 0 title, 1 feed, 2 author, 3 date.
-    in property <int> sort-column: 3;
-    in property <bool> sort-ascending: false;
-    in-out property <length> feed-width: 160px;
-    in-out property <length> author-width: 140px;
-    in-out property <length> date-width: 140px;
-    // Two-line rows without a header, for a narrow list beside the article.
-    in property <bool> compact;
-    // Web pages can be opened in tabs (the `servo` feature).
-    in property <bool> tabs-available;
-
-    property <length> row-height: root.compact ? Theme.compact-row-height : Theme.row-height;
+    // Column the list is sorted by: 0 number (library order), 1 title,
+    // 2 artist, 3 album, 4 length.
+    in property <int> sort-column: 0;
+    in property <bool> sort-ascending: true;
+    in property <length> number-width: 56px;
+    in-out property <length> artist-width: 200px;
+    in-out property <length> album-width: 220px;
+    in-out property <length> length-width: 72px;
 
     // For the autoscroll measurement.
     in-out property <length> content-y <=> list.content-y;
     out property <length> scroll-range: max(0px, list.content-height - list.visible-height);
 
     callback select(row: int);
+    callback activate(row: int);
     callback sort(column: int);
     // A navigation key: "up", "down", "page-up", "page-down", "home" or
     // "end", and the number of rows per page.
     callback navigate(key: string, page: int);
     // An entry of a row's context menu was activated.
     callback menu(row: int, action: string);
+    // What dragging a row carries.
+    pure callback drag-data(row: int) -> data-transfer;
 
     changed current => {
         // Keep the selected row in view.
-        let top = root.current * root.row-height;
+        let top = root.current * Theme.row-height;
         if top < -list.content-y {
             list.content-y = -top;
-        } else if top + root.row-height > -list.content-y + list.visible-height {
-            list.content-y = -(top + root.row-height - list.visible-height);
+        } else if top + Theme.row-height > -list.content-y + list.visible-height {
+            list.content-y = -(top + Theme.row-height - list.visible-height);
         }
     }
 
     key-pressed(event) => {
-        let page = floor(list.visible-height / root.row-height);
+        let page = floor(list.visible-height / Theme.row-height);
         if event.text == Key.UpArrow {
             root.navigate("up", page);
         } else if event.text == Key.DownArrow {
@@ -328,6 +271,8 @@ export component ItemTable inherits FocusScope {
             root.navigate("home", page);
         } else if event.text == Key.End {
             root.navigate("end", page);
+        } else if event.text == Key.Return {
+            root.activate(root.current);
         } else {
             return reject;
         }
@@ -335,17 +280,14 @@ export component ItemTable inherits FocusScope {
     }
 
     VerticalLayout {
-        if !root.compact: Rectangle {
+        Rectangle {
             height: Theme.row-height;
 
             HorizontalLayout {
-                padding-left: 0px;
-                // The list's scroll bar sits below the header's right end.
-                padding-right: 0px;
-
                 HeaderCell {
-                    horizontal-stretch: 1;
-                    text: "Title";
+                    width: root.number-width;
+                    text: "#";
+                    alignment: right;
                     sorted: root.sort-column == 0;
                     ascending: root.sort-ascending;
                     clicked => {
@@ -353,13 +295,9 @@ export component ItemTable inherits FocusScope {
                     }
                 }
 
-                ColumnResizer {
-                    column-width <=> root.feed-width;
-                }
-
                 HeaderCell {
-                    width: root.feed-width - 7px;
-                    text: "Feed";
+                    horizontal-stretch: 1;
+                    text: "Title";
                     sorted: root.sort-column == 1;
                     ascending: root.sort-ascending;
                     clicked => {
@@ -368,12 +306,12 @@ export component ItemTable inherits FocusScope {
                 }
 
                 ColumnResizer {
-                    column-width <=> root.author-width;
+                    column-width <=> root.artist-width;
                 }
 
                 HeaderCell {
-                    width: root.author-width - 7px;
-                    text: "Author";
+                    width: root.artist-width - 7px;
+                    text: "Artist";
                     sorted: root.sort-column == 2;
                     ascending: root.sort-ascending;
                     clicked => {
@@ -382,16 +320,31 @@ export component ItemTable inherits FocusScope {
                 }
 
                 ColumnResizer {
-                    column-width <=> root.date-width;
+                    column-width <=> root.album-width;
                 }
 
                 HeaderCell {
-                    width: root.date-width - 7px;
-                    text: "Date";
+                    width: root.album-width - 7px;
+                    text: "Album";
                     sorted: root.sort-column == 3;
                     ascending: root.sort-ascending;
                     clicked => {
                         root.sort(3);
+                    }
+                }
+
+                ColumnResizer {
+                    column-width <=> root.length-width;
+                }
+
+                HeaderCell {
+                    width: root.length-width - 7px;
+                    text: "Length";
+                    alignment: right;
+                    sorted: root.sort-column == 4;
+                    ascending: root.sort-ascending;
+                    clicked => {
+                        root.sort(4);
                     }
                 }
             }
@@ -404,17 +357,24 @@ export component ItemTable inherits FocusScope {
         }
 
         list := ListView {
-            for row[i] in root.rows: ItemTableRow {
+            for row[i] in root.rows: TrackTableRow {
                 entry: row;
                 index: i;
                 selected: i == root.current;
                 focused: root.has-focus;
-                widths: { feed: root.feed-width, author: root.author-width, date: root.date-width };
-                compact: root.compact;
-                tabs-available: root.tabs-available;
+                widths: {
+                    number: root.number-width,
+                    artist: root.artist-width,
+                    album: root.album-width,
+                    length: root.length-width,
+                };
+                drag-data: root.drag-data(i);
                 clicked => {
                     root.focus();
                     root.select(i);
+                }
+                double-clicked => {
+                    root.activate(i);
                 }
                 menu(action) => {
                     root.menu(i, action);

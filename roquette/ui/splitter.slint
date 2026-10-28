@@ -6,12 +6,14 @@
 
 import { Theme } from "theme.slint";
 
-// A bar between two panes that resizes the pane before it when dragged.
+// A bar between two panes that resizes the pane before it when dragged, or
+// the pane after it with `resizes-next`.
 export component Splitter inherits Rectangle {
     // A vertical bar between panes side by side; otherwise a horizontal bar
     // between panes on top of each other.
     in property <bool> vertical: true;
-    // Size of the pane before the splitter.
+    in property <bool> resizes-next;
+    // Size of the pane the splitter resizes.
     in-out property <length> size;
     in property <length> min-size: 100px;
     in property <length> max-size: 10000px;
@@ -32,7 +34,7 @@ export component Splitter inherits Rectangle {
         moved => {
             if self.pressed {
                 let delta = root.vertical ? self.mouse-x - self.pressed-x : self.mouse-y - self.pressed-y;
-                root.size = clamp(root.size + delta, root.min-size, root.max-size);
+                root.size = clamp(root.size + (root.resizes-next ? -delta : delta), root.min-size, root.max-size);
             }
         }
     }

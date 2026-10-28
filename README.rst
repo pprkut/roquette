@@ -24,9 +24,10 @@ Roquette is being restarted and can't play music yet. The roadmap is in
 Development
 -----------
 
-Roquette needs Python 3.12 or later and beets 2.14 or later. It runs from the
-checkout, without installing; tasks are recipes of a ``justfile``
-(`just <https://just.systems/>`_):
+Roquette needs Python 3.12 or later, beets 2.14 or later, the Python bindings of
+`Slint <https://slint.dev/>`_ (1.18.1b1 or later), Pillow, and PyGObject with
+GStreamer. It runs from the checkout, without installing; tasks are recipes of a
+``justfile`` (`just <https://just.systems/>`_):
 
 - ``just dev-library`` copies your beets config and library into ``dev/beets``.
   Development uses this copy: the live library is only read, never changed.
