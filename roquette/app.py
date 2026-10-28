@@ -43,6 +43,9 @@ def thumbnail_dir() -> Path:
 
 def run(args: argparse.Namespace) -> int:
     stopwatch = Stopwatch(args.measure)
+    # The renderer of docs/decisions/0001-ui-toolkit.md; SLINT_BACKEND
+    # picks another until M4 makes it a setting.
+    os.environ.setdefault("SLINT_BACKEND", "winit-femtovg")
     import slint
 
     from roquette.library import index
