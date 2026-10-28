@@ -14,6 +14,7 @@ import hashlib
 import os
 import tempfile
 import threading
+import urllib.parse
 from collections import OrderedDict
 from collections.abc import Callable, Hashable
 from dataclasses import dataclass
@@ -33,8 +34,19 @@ class Pixels:
     data: bytes
 
 
+def file_uri(path: Path) -> str:
+    """The URI the thumbnail cache knows `path` by, as GLib makes it.
+
+    The cache names thumbnails by the MD5 of this URI, so it must be
+    escaped exactly as other programs escape it: `Path.as_uri()` escapes
+    characters such as `'`, `(` and `,` that GLib leaves as they are.
+    """
+    quoted = urllib.parse.quote(os.fsencode(path.absolute()), safe="/!$&'()*+,:=@~")
+    return f"file://{quoted}"
+
+
 def thumbnail_path(thumbnails: Path, original: Path) -> Path:
-    uri = original.absolute().as_uri()
+    uri = file_uri(original)
     return thumbnails / "large" / f"{hashlib.md5(uri.encode()).hexdigest()}.png"
 
 
@@ -76,7 +88,7 @@ def _write_thumbnail(
 ) -> None:
     path = thumbnail_path(thumbnails, original)
     info = PngImagePlugin.PngInfo()
-    info.add_text("Thumb::URI", original.absolute().as_uri())
+    info.add_text("Thumb::URI", file_uri(original))
     info.add_text("Thumb::MTime", str(mtime))
     info.add_text("Thumb::Size", str(original.stat().st_size))
     info.add_text("Software", "Roquette")

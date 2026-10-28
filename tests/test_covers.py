@@ -13,6 +13,7 @@ from roquette.covers import (
     CoverLoader,
     ImageCache,
     Pixels,
+    file_uri,
     load_cover,
     thumbnail_path,
 )
@@ -34,13 +35,22 @@ def test_load_scales_to_fit(cover: Path) -> None:
     assert all(abs(a - b) < 8 for a, b in zip(pixel, (200, 30, 30), strict=True))
 
 
+def test_uri_is_escaped_as_glib_does() -> None:
+    # GLib.filename_to_uri() of the same path.
+    path = Path("/Music/Guns N' Roses/Appetite (Deluxe), 1 & 2;é/cover.jpg")
+    assert file_uri(path) == (
+        "file:///Music/Guns%20N'%20Roses/Appetite%20(Deluxe),%201%20&%202%3B%C3%A9"
+        "/cover.jpg"
+    )
+
+
 def test_thumbnail_is_written_and_used(cover: Path, tmp_path: Path) -> None:
     thumbnails = tmp_path / "thumbnails"
     load_cover(cover, 160, thumbnails)
     thumbnail = thumbnail_path(thumbnails, cover)
     with Image.open(thumbnail) as image:
         assert max(image.size) == 256
-        assert image.info["Thumb::URI"] == cover.as_uri()
+        assert image.info["Thumb::URI"] == file_uri(cover)
         assert image.info["Thumb::MTime"] == str(int(cover.stat().st_mtime))
     assert thumbnail.stat().st_mode & 0o777 == 0o600
 
