@@ -284,20 +284,26 @@ same way.
 
 ### Budgets
 
-Initial targets, for the dev library (~11,800 tracks, ~800 releases),
-measured as RSS and PSS on KDE. S1 measures the floor (Python, beets,
-Slint and GStreamer loaded, an empty window) and replaces these with real
-budgets in its decision record:
+For the dev library (~11,800 tracks, ~800 releases), measured as RSS and
+PSS on KDE with the software renderer, from S1's measurements
+(`docs/decisions/0001-ui-toolkit.md`; the floor, Python, beets, Slint and
+GStreamer loaded with an empty window, is about 112 MiB RSS, 83 MiB PSS
+at scale 2):
 
-- **Idle** (window open, paused, a module showing): under 150 MB RSS,
-  0% CPU, no wake-ups beyond what the toolkit needs.
+- **Idle** (window open, paused, a module showing): under 175 MiB RSS and
+  145 MiB PSS, 0% CPU, no wake-ups beyond what the toolkit needs.
 - **Playing**: CPU dominated by decoding (FLAC: well under 1% of a core);
   no more than a few wake-ups per second for the position display, none
   while the window is hidden or minimised.
-- **After browsing** every release in Browse and back: memory returns to
-  near the idle figure, not "idle plus every cover".
+- **After browsing** every release in Browse and back: idle plus the
+  cover cache's limit (32 MiB by default) plus at most 10 MiB, not "idle
+  plus every cover", with a cold thumbnail cache too.
+- **Ten times the library**: idle within 10 MiB of the library's.
 - **Long runs**: RSS flat over an 8-hour playback run.
-- **Startup** to an interactive window: under a second on a warm cache.
+- **Startup**: the window under 400 ms from starting `python3`, filled
+  under 500 ms, on a warm cache; never over a second.
+- **Scrolling**: 60 fps through lists and grids at `just measure`'s
+  speeds; CPU is recorded at every milestone.
 
 ### Design rules
 
@@ -313,9 +319,10 @@ budgets in its decision record:
   articles) after a while. Heavy imports (aiohttp, dbus-fast, the
   external sources) happen on first use, not at startup.
 - **Images at display size.** Covers are decoded off the UI thread
-  straight to the size they're shown at (freedesktop thumbnails, 256 px
-  "large", for grids), into a bounded in-memory cache; full-size art is
-  decoded only for the one cover shown large.
+  straight to the size they're shown at (freedesktop thumbnails of the
+  size class that fits the physical size: 256 px "large" for grids at
+  scale 1, 512 px "x-large" at scale 2), into a bounded in-memory cache;
+  full-size art is decoded only for the one cover shown large.
 - **No polling.** Changes arrive as events (GStreamer bus, D-Bus, file
   watches on the beets database for outside changes); the position
   display ticks at a few Hz and only while visible.
@@ -383,12 +390,14 @@ Goal: answer the risky questions with working code and numbers. Tests are
 optional, module boundaries are not. Each spike ends with a decision record
 `docs/decisions/NNNN-<topic>.md`.
 
-- **S1 — Slint from Python.** The window from "UI concept" with
-  placeholders: navigation with two dummy modules, a playlist pane, the
-  transport bar. One module lists all tracks of the dev library through a
-  custom `slint.Model` (rows built on demand); one shows a grid of ~800
-  album covers loaded and scaled on a worker thread. The playlist pane
-  shows a few multi-line rows, one with an expandable list of versions.
+- **S1 — Slint from Python.** *(done: Slint from Python with the
+  software renderer, see `docs/decisions/0001-ui-toolkit.md`)* The
+  window from "UI concept" with placeholders: navigation with two dummy
+  modules, a playlist pane, the transport bar. One module lists all
+  tracks of the dev library through a custom `slint.Model` (rows built
+  on demand); one shows a grid of ~800 album covers loaded and scaled on
+  a worker thread. The playlist pane shows a few multi-line rows, one
+  with an expandable list of versions.
   Check: asyncio and worker threads talking to the UI, custom models at 10×
   the library size, image loading, rows of different heights, reusing
   ren's `.slint` components, drag and drop, keyboard focus, the system
