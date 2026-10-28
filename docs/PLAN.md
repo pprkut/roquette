@@ -285,13 +285,13 @@ same way.
 ### Budgets
 
 For the dev library (~11,800 tracks, ~800 releases), measured as RSS and
-PSS on KDE with the software renderer, from S1's measurements
+PSS on KDE with the FemtoVG renderer, from S1's measurements
 (`docs/decisions/0001-ui-toolkit.md`; the floor, Python, beets, Slint and
-GStreamer loaded with an empty window, is about 112 MiB RSS, 83 MiB PSS
+GStreamer loaded with an empty window, is about 168 MiB RSS, 108 MiB PSS
 at scale 2):
 
-- **Idle** (window open, paused, a module showing): under 175 MiB RSS and
-  145 MiB PSS, 0% CPU, no wake-ups beyond what the toolkit needs.
+- **Idle** (window open, paused, a module showing): under 225 MiB RSS and
+  165 MiB PSS, 0% CPU, no wake-ups beyond what the toolkit needs.
 - **Playing**: CPU dominated by decoding (FLAC: well under 1% of a core);
   no more than a few wake-ups per second for the position display, none
   while the window is hidden or minimised.
@@ -391,7 +391,7 @@ optional, module boundaries are not. Each spike ends with a decision record
 `docs/decisions/NNNN-<topic>.md`.
 
 - **S1 — Slint from Python.** *(done: Slint from Python with the
-  software renderer, see `docs/decisions/0001-ui-toolkit.md`)* The
+  FemtoVG renderer, see `docs/decisions/0001-ui-toolkit.md`)* The
   window from "UI concept" with placeholders: navigation with two dummy
   modules, a playlist pane, the transport bar. One module lists all
   tracks of the dev library through a custom `slint.Model` (rows built
@@ -455,7 +455,9 @@ From here on every milestone ships with tests.
   Version choice is in the model, but defaults to "the item that was
   added" until M11.
 - **M4 — Settings and state.** The `roquette:` config section with defaults
-  from the beets plugin and validation, the UI state file. Settings are
+  from the beets plugin and validation, the UI state file. The Slint
+  renderer is a setting (FemtoVG by default, see
+  `docs/decisions/0001-ui-toolkit.md`), read before Slint is imported. Settings are
   edited by hand in the beets config for now; a settings dialog would have
   to rewrite the YAML preserving comments (`ruamel.yaml` round-trip), which
   is decided when there is one.

@@ -295,17 +295,20 @@ with the software renderer, about 330 ms to the window.
 
 ## Budgets
 
-For the dev library on the desktop with the software renderer; they
-replace the plan's first guesses in "Performance":
+For the dev library on the desktop with the FemtoVG renderer (see
+"Decision"); they replace the plan's first guesses in "Performance":
 
-- **Floor**: about 112 MiB RSS, 83 MiB PSS, fixed by Python, beets,
-  Slint and GStreamer; the budgets below include it.
-- **Idle** (window open, paused, a module showing): under 175 MiB RSS and
-  145 MiB PSS, 0 % CPU, no wake-ups beyond what the toolkit needs. The
-  plan's 150 MB is already taken by S1's window at scale 2 (152 MiB RSS,
-  121 PSS); this leaves about 23 MiB for what the real modules, the live
-  playlist, MPRIS and scrobbling add. Where to win memory back if
-  needed: the compiled `.slint` files (25 MiB), imports made lazily.
+- **Floor**: about 168 MiB RSS, 108 MiB PSS, fixed by Python, beets,
+  Slint, Mesa's OpenGL driver and GStreamer; the budgets below include
+  it.
+- **Idle** (window open, paused, a module showing): under 225 MiB RSS and
+  165 MiB PSS, 0 % CPU, no wake-ups beyond what the toolkit needs. The
+  plan's 150 MB is already taken by S1's window at scale 2 even with the
+  software renderer (152 MiB RSS, 121 PSS; 201 and 140 with FemtoVG);
+  this leaves about 24 MiB for what the real modules, the live playlist,
+  MPRIS and scrobbling add. Where to win memory back if needed: the
+  compiled `.slint` files (25 MiB), imports made lazily, the software
+  renderer (about 50 MiB RSS, 20 PSS).
 - **Playing**: as planned (S2 measures).
 - **After browsing** every release: idle plus the cover cache's limit
   (32 MiB by default) plus at most 10 MiB, with a cold thumbnail cache
@@ -325,13 +328,17 @@ replace the plan's first guesses in "Performance":
   (lazy models, a model per grid row, no Slint calls from workers). None
   of them is a reason to fall back to PySide6, which therefore wasn't
   built.
-- **Renderer: software**, as in ren: 50 MiB less RSS and about 20 MiB
-  less PSS than FemtoVG or Skia, and no GPU driver loaded, for a program
-  that's idle most of the time. The price is CPU while scrolling at
-  HiDPI (about 25 percentage points of a core more at the benchmark's
-  speed) and frames dropped only in the extreme ten-times scroll.
-  FemtoVG and Skia stay selectable through `SLINT_BACKEND`; M5 can make
-  the renderer a setting.
+- **Renderer: FemtoVG** (OpenGL), unlike ren. For roquette, smooth
+  scrolling matters more than memory: at scale 2 the software renderer
+  takes about 25 percentage points of a core more while scrolling the
+  table (76 % against 48 %) and drops to 36 fps in the ten-times scroll
+  (57 with FemtoVG), a much larger difference than ren saw. That's worth
+  FemtoVG's 50 MiB more RSS and 20 MiB more PSS. Against Skia (the slint
+  wheel's default), FemtoVG is as fast or a little faster, takes 5 MiB
+  less for the window and about 40 MiB less after browsing the covers.
+  roquette sets `SLINT_BACKEND=winit-femtovg` unless it's set already,
+  so `winit-skia` and `winit-software` stay selectable; M4 makes the
+  renderer a setting.
 - **Threading**: blocking work runs on worker threads, which never call
   into Slint; results reach the event loop through the inbox
   (`roquette/threads.py`), not `call_soon_threadsafe` or
@@ -359,11 +366,13 @@ replace the plan's first guesses in "Performance":
   through pyo3's deferred reference release; assigning a model reading
   every row; conversion errors that are only printed; the memory of the
   compiled `.slint` files staying alive with the window.
-- The plan's "Performance" takes the budgets above. M12 decodes covers
+- The plan's "Performance" takes the budgets above, for FemtoVG. With
+  FemtoVG the "after browsing" budget holds with a warm thumbnail cache
+  (237 MiB against 201 + 42) but not with a cold one (306). M12 decodes covers
   from the thumbnail size class that fits their physical size.
 - Open issues:
-  - What holds the 60 MiB left after a cold-cache cover scroll on the
-    desktop (M12). First checks: a longer settle than the measurement's
+  - What holds the memory left after a cold-cache cover scroll on the
+    desktop (60 MiB with the software renderer, 70 with FemtoVG; M12). First checks: a longer settle than the measurement's
     3 s, and `MALLOC_MMAP_THRESHOLD_=131072` or `MALLOC_ARENA_MAX=2` to
     tell glibc's part from the rest.
   - The checks by hand: drag and drop from Dolphin, following the
