@@ -98,6 +98,37 @@ def test_loader_delivers(cover: Path, tmp_path: Path) -> None:
     assert delivered["missing"] is None
 
 
+@pytest.mark.parametrize(("max_pending", "loaded"), [(None, 64), (100, 100)])
+def test_loader_keeps_the_newest(
+    cover: Path, max_pending: int | None, loaded: int
+) -> None:
+    busy, release, done = threading.Event(), threading.Event(), threading.Event()
+    delivered: list[int] = []
+
+    def deliver(key: int, pixels: Pixels | None) -> None:
+        if key < 0:
+            busy.set()
+            release.wait(10)
+        else:
+            delivered.append(key)
+            if key == 100 - loaded:
+                done.set()
+
+    loader: CoverLoader[int] = CoverLoader(8, None, deliver)
+    if max_pending is not None:
+        loader.set_max_pending(max_pending)
+    # Requests made while the worker is busy queue up.
+    loader.request(-1, cover)
+    assert busy.wait(10)
+    for key in range(100):
+        loader.request(key, cover)
+    release.set()
+    # Newest first: the oldest kept is the last.
+    assert done.wait(10)
+    loader.close()
+    assert sorted(delivered) == list(range(100 - loaded, 100))
+
+
 def test_cache_is_bounded_by_size() -> None:
     cache: ImageCache[int, str] = ImageCache(max_bytes=300, min_entries=1)
     for key in range(5):

@@ -114,6 +114,12 @@ export component CoverGrid inherits FocusScope {
     changed columns => {
         root.columns-changed(self.columns);
     }
+    // The most cells on screen at once: a row more than fit, for the
+    // partly shown ones at the top and the bottom.
+    out property <int> cells-shown: root.columns * (ceil(list.visible-height / Theme.cover-cell-height) + 1);
+    changed cells-shown => {
+        root.cells-shown-changed(self.cells-shown);
+    }
 
     // For the autoscroll measurement.
     in-out property <length> content-y <=> list.content-y;
@@ -121,6 +127,8 @@ export component CoverGrid inherits FocusScope {
 
     // The model's rows must have this many cells now.
     callback columns-changed(columns: int);
+    // The cover loader must keep at least this many requests.
+    callback cells-shown-changed(cells: int);
     callback select(index: int);
     callback activate(index: int);
     pure callback drag-data(index: int) -> data-transfer;

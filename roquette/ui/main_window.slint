@@ -131,6 +131,7 @@ export component MainWindow inherits Window {
     // size they're shown at.
     out property <float> scale-factor: 1px / 1phx;
     callback cover-columns-changed(columns: int);
+    callback cover-cells-shown-changed(cells: int);
     callback cover-select(index: int);
     callback cover-activate(index: int);
     callback cover-navigate(key: string, columns: int);
@@ -247,9 +248,13 @@ export component MainWindow inherits Window {
                         init => {
                             self.focus();
                             root.cover-columns-changed(self.columns);
+                            root.cover-cells-shown-changed(self.cells-shown);
                         }
                         columns-changed(columns) => {
                             root.cover-columns-changed(columns);
+                        }
+                        cells-shown-changed(cells) => {
+                            root.cover-cells-shown-changed(cells);
                         }
                         select(index) => {
                             root.cover-select(index);

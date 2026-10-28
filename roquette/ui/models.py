@@ -102,6 +102,10 @@ class CoverModel(LazyModel):
         """How many covers are cached, and their size in bytes."""
         return len(self._cache), self._cache.bytes
 
+    def set_cells_shown(self, cells: int) -> None:
+        """At most `cells` cells are on screen at once."""
+        self._loader.set_max_pending(max(64, cells))
+
     def set_columns(self, columns: int) -> None:
         self.columns = max(1, columns)
         self.reset(-(-len(self.grid) // self.columns))
