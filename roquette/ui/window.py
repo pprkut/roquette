@@ -103,6 +103,8 @@ class MainWindow:
         self.worker: Executor | None = None
         # The tracks of what the engine plays, by the engine's index.
         self._playing: list[Track] = []
+        # Counts the calls of `play`: only the latest one's look-up plays.
+        self._play_requests = 0
         self._sink_noted = False
         self._ticker: asyncio.Task[None] | None = None
         self._clear_now_playing()
@@ -341,12 +343,17 @@ class MainWindow:
         if self.engine is None or self.library is None or self.worker is None:
             return
         library, ids = self.library, [t.id for t in tracks]
+        self._play_requests += 1
+        request = self._play_requests
 
         async def look_up() -> None:
             assert self.worker is not None and self.engine is not None
             playables = await self.inbox.run(
                 self.worker, lambda: load_playables(library, ids)
             )
+            # Look-ups run on several workers and can finish out of order.
+            if request != self._play_requests:
+                return
             by_id = {t.id: t for t in tracks}
             playing = [by_id[p.id] for p in playables]
             if not playing:
