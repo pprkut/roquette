@@ -69,7 +69,13 @@ class Inbox:
                 callback, args = self._queue.get_nowait()
             except queue.Empty:
                 return
-            callback(*args)
+            # One failing callback mustn't hold up the ones queued after it.
+            try:
+                callback(*args)
+            except Exception as error:
+                self._loop.call_exception_handler(
+                    {"message": f"Exception in {callback!r}", "exception": error}
+                )
 
 
 def _set_result[T](future: asyncio.Future[T], result: T) -> None:

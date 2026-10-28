@@ -35,6 +35,31 @@ def test_post_from_a_thread() -> None:
     assert asyncio.run(main()) == ["first", "second"]
 
 
+def test_failing_callback() -> None:
+    async def main() -> tuple[list[BaseException], bool]:
+        loop = asyncio.get_running_loop()
+        errors: list[BaseException] = []
+        loop.set_exception_handler(
+            lambda _, context: errors.append(context["exception"])
+        )
+        inbox = Inbox(loop)
+        done = loop.create_future()
+
+        def fail() -> None:
+            raise ValueError
+
+        # Both are queued before the loop drains the inbox.
+        inbox.post(fail)
+        inbox.post(done.set_result, True)
+        result = await asyncio.wait_for(done, 5)
+        inbox.close()
+        return errors, result
+
+    errors, result = asyncio.run(main())
+    assert result
+    assert [type(error) for error in errors] == [ValueError]
+
+
 def test_run() -> None:
     async def main() -> None:
         inbox = Inbox(asyncio.get_running_loop())
