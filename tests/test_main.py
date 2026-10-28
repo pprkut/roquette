@@ -20,6 +20,33 @@ def test_defaults() -> None:
     assert args.scale == 1
     assert args.autoscroll is None
     assert not args.measure
+    assert args.play is None
+    assert args.audio_sink is None
+    assert args.replaygain == "auto"
+    assert args.replaygain_source == "beets"
+    assert args.preamp == 0.0
+
+
+def test_playback() -> None:
+    args = parse_args(
+        [
+            "--play",
+            "album:Foo",
+            "--audio-sink",
+            "pipewiresink",
+            "--replaygain",
+            "track",
+            "--replaygain-source",
+            "tags",
+            "--preamp",
+            "-3",
+        ]
+    )
+    assert args.play == "album:Foo"
+    assert args.audio_sink == "pipewiresink"
+    assert args.replaygain == "track"
+    assert args.replaygain_source == "tags"
+    assert args.preamp == -3.0
 
 
 def test_measuring() -> None:
