@@ -73,6 +73,14 @@ ReplayGain source and mechanism, and the engine's threading model.
   started (see below).
 - Seeking in a track after the next one was queued keeps the next one
   queued.
+- **An error in the next file cuts the current one short.** The next
+  file is opened at `about-to-finish`, so a missing or unreadable one
+  fails seconds before the current track ends; stopping then lost the
+  last 2 s of a 3 s track in real time. The error names the right file
+  (the failing `filesrc`'s location, or a `urisourcebin`'s URI). Not
+  stopping lets the current track play to its end, but then no EOS
+  comes: the pipeline waits for the stream that failed. M2 skips the
+  file instead.
 
 ### ReplayGain
 
@@ -213,7 +221,8 @@ manager to minimise to.
 ## Consequences
 
 - M2 hardens this engine: the state machine, errors (skip a missing or
-  unreadable file and report it, instead of stopping), output device
+  unreadable file and report it, instead of stopping; when it's the next
+  file, the current track plays to its end first), output device
   selection, a switch with a flush when the queue changes after
   `about-to-finish`, buffer sizes for fewer wake-ups, and
   `pygobject-stubs` with checks or casts where they need them.
