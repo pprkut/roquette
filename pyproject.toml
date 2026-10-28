@@ -122,8 +122,8 @@ files = ["roquette", "beetsplug", "tests"]
 # beetsplug is a namespace package.
 explicit_package_bases = true
 
-# PyGObject has no type information of its own; S2 decides whether its
-# use warrants pygobject-stubs.
+# PyGObject has no type information of its own; M2 adds pygobject-stubs
+# (docs/decisions/0002-playback.md).
 [[tool.mypy.overrides]]
 module = ["gi", "gi.*"]
 ignore_missing_imports = true
