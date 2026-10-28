@@ -10,6 +10,7 @@ otherwise, so file managers and roquette share the work
 """
 
 import contextlib
+import ctypes
 import hashlib
 import os
 import tempfile
@@ -108,6 +109,18 @@ def _write_thumbnail(
         temp.unlink(missing_ok=True)
 
 
+def _malloc_trim() -> Callable[[int], int] | None:
+    try:
+        trim: Callable[[int], int] = ctypes.CDLL(None).malloc_trim
+    except (OSError, AttributeError):
+        # Not glibc.
+        return None
+    return trim
+
+
+_MALLOC_TRIM = _malloc_trim()
+
+
 type Deliver[K] = Callable[[K, Pixels | None], None]
 
 
@@ -171,14 +184,23 @@ class CoverLoader[K: Hashable]:
         # Below the UI and GStreamer's threads.
         with contextlib.suppress(OSError):
             os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
+        loaded = False
         while True:
             with self._wake:
+                if not self._pending and loaded and _MALLOC_TRIM is not None:
+                    # glibc keeps the memory that decoding large covers
+                    # freed: give it back once there's nothing left to do.
+                    # Without this, scrolling once through the covers of a
+                    # library left over 80 MiB behind.
+                    _MALLOC_TRIM(0)
+                    loaded = False
                 while not self._pending and not self._closed:
                     self._wake.wait()
                 if self._closed:
                     return
                 key, path = self._pending.popitem(last=True)
                 self._loading = key
+            loaded = True
             try:
                 pixels: Pixels | None = load_cover(path, self.size, self._thumbnails)
             except Exception:
