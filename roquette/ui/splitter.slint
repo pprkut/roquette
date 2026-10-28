@@ -1,0 +1,39 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+//
+// From ren (https://github.com/pprkut/ren), crates/ren/src/ui/splitter.slint
+// at 86c46a6, relicensed from GPL-3.0-or-later by its copyright holder.
+
+import { Theme } from "theme.slint";
+
+// A bar between two panes that resizes the pane before it when dragged.
+export component Splitter inherits Rectangle {
+    // A vertical bar between panes side by side; otherwise a horizontal bar
+    // between panes on top of each other.
+    in property <bool> vertical: true;
+    // Size of the pane before the splitter.
+    in-out property <length> size;
+    in property <length> min-size: 100px;
+    in property <length> max-size: 10000px;
+
+    // Only the line is visible; the bar around it is the drag handle.
+    Rectangle {
+        x: root.vertical ? (parent.width - self.width) / 2 : 0px;
+        y: root.vertical ? 0px : (parent.height - self.height) / 2;
+        width: root.vertical ? 1px : parent.width;
+        height: root.vertical ? parent.height : 1px;
+        background: touch.has-hover || touch.pressed ? Theme.selection-border : Theme.separator;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: root.vertical ? col-resize : row-resize;
+        // The splitter moves with the size it changes, so the offset from
+        // where it was grabbed is what remains to be applied.
+        moved => {
+            if self.pressed {
+                let delta = root.vertical ? self.mouse-x - self.pressed-x : self.mouse-y - self.pressed-y;
+                root.size = clamp(root.size + delta, root.min-size, root.max-size);
+            }
+        }
+    }
+}

@@ -1,0 +1,55 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+//
+// From ren (https://github.com/pprkut/ren), crates/ren/src/ui/theme.slint
+// at 86c46a6, relicensed from GPL-3.0-or-later by its copyright holder.
+
+import { Palette } from "std-widgets.slint";
+
+// Colours and metrics shared by the custom widgets. Colours derive from the
+// style's palette, which follows the desktop's colour scheme and accent.
+export global Theme {
+    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+
+    // Rows
+    out property <length> row-height: 26px;
+    out property <length> compact-row-height: 46px;
+    out property <length> row-padding: 6px;
+    out property <brush> alternate-row: root.dark ? #ffffff08 : #00000008;
+    out property <brush> hover: Palette.accent-background.with-alpha(0.12);
+
+    // Selection, modelled on Breeze's item views: a tinted fill with an
+    // accent border while the view has focus, a lighter fill without.
+    out property <length> selection-radius: 3px;
+    out property <brush> selection-border: Palette.accent-background;
+
+    public pure function selection(focused: bool) -> brush {
+        return Palette.accent-background.with-alpha(focused ? 0.35 : 0.18);
+    }
+
+    // Item status colours, as in akregator: new items red, unread green.
+    // Breeze's negative and positive text colours, unless the settings
+    // (`list.new-colour`, `list.unread-colour`) set others.
+    in property <bool> custom-new;
+    in property <color> new-colour;
+    in property <bool> custom-unread;
+    in property <color> unread-colour;
+    out property <color> default-new: root.dark ? #f0505f : #da4453;
+    out property <color> default-unread: root.dark ? #2ecc71 : #1e8449;
+    out property <brush> status-new: root.custom-new ? root.new-colour : root.default-new;
+    out property <brush> status-unread: root.custom-unread ? root.unread-colour : root.default-unread;
+    out property <brush> starred: root.dark ? #f6c342 : #c9a200;
+    // Breeze's negative text colour: feeds the server can't update.
+    out property <brush> negative: root.default-new;
+
+    // Tree
+    out property <length> tree-indent: 18px;
+    out property <brush> branch-line: Palette.foreground.with-alpha(0.3);
+
+    // Icons
+    out property <length> toolbar-icon-size: 22px;
+    out property <length> tree-icon-size: 16px;
+
+    // Separators between panes and around headers
+    out property <brush> separator: Palette.border;
+}
