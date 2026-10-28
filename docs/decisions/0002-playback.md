@@ -5,9 +5,10 @@ SPDX-License-Identifier: MIT
 
 # 0002 — Playback: playbin3, ReplayGain from beets (spike S2)
 
-**Status:** proposed (2026-10-28). The automated check passes; the
-listening test and the measurements on the desktop are still to do (see
-"Still to do on the desktop"), and decide whether this is accepted.
+**Status:** proposed (2026-10-28). The automated check passes, and
+playback on the desktop is gapless by ear; the measurements on the
+desktop are still to do (see "Still to do on the desktop"), and decide
+whether this is accepted.
 
 ## Context
 
@@ -191,7 +192,8 @@ manager to minimise to.
 - **The listening test**: a few releases known to be gapless (live albums,
   DJ mixes, classical works with continuous movements), played through
   with `just run --play 'album:…'`, listening for gaps, clicks and gain
-  jumps at the transitions, in `--replaygain auto` (album gain).
+  jumps at the transitions, in `--replaygain auto` (album gain). Done for
+  gaps: none heard on the desktop.
 - **`just measure`** with `PLAY_QUERY` set to a release longer than
   `SETTLE_SECS` + `PLAY_SECS` (40 s by default) and `xdotool` installed:
   CPU and wake-ups while playing, window shown and minimised, and which
