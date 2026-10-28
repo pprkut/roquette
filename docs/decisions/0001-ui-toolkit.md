@@ -5,9 +5,7 @@ SPDX-License-Identifier: MIT
 
 # 0001 — UI toolkit: Slint from Python (spike S1)
 
-**Status:** proposed. Built and measured in a cloud container under Xvfb;
-the measurements on the desktop (KDE) are still to be run, and the
-budgets below are to be confirmed with them.
+**Status:** accepted (2026-10-28).
 
 ## Context
 
@@ -150,30 +148,46 @@ Screenshots (Xvfb, fake library): `0001/tracks-light.webp`,
   them through a context variable that new threads don't inherit; a
   worker reading paths needs `Library.music_dir_context()`.
 
+### Found on the desktop
+
+- **Decoding covers left memory behind.** Scrolling once through the
+  dev library's covers with a cold thumbnail cache left RSS about 86 MiB
+  above idle plus the cover cache (271 against 185 MiB with a warm
+  cache). glibc keeps the memory freed by decoding large originals on
+  the worker thread for reuse instead of returning it. The cover worker
+  now calls `malloc_trim()` whenever it runs out of requests: in the
+  container, decoding 120 large covers (1400–3000 px, JPEG and PNG) left
+  21–54 MiB behind without it and 2 MiB with it. The desktop figure
+  after the fix is still to be measured (next `just measure`).
+- **HiDPI**: the desktop runs at a scale factor of 2 (the software
+  renderer's 15.6 MiB frame buffer is 2560×1600 pixels). A cell's 160 px
+  are then 320 physical pixels, but the "large" thumbnails are 256 px,
+  so the covers are drawn upscaled. The plan's "256 px for grids" holds
+  only at scale 1; covers need the thumbnail size class for their
+  physical size (`x-large`, 512 px, at scale 2). For M12.
+- The main window takes about 80 ms from its creation to being shown on
+  the desktop, against 10 ms under Xvfb; the empty window of the floor
+  doesn't. Probably the system fonts being loaded for the first text;
+  to look at in M5.
+
 ### Not checked
 
-- Drag and drop with other applications (files from Dolphin): Xvfb has
-  no drag source. To check on the desktop.
-- Wayland, HiDPI scaling (the covers are decoded for the window's scale
-  factor, untested above 1), following the desktop's colour scheme and
-  accent.
+- Drag and drop with other applications (files from Dolphin), following
+  the desktop's colour scheme and accent, Wayland: not checked by hand
+  yet.
 - Accessibility (AccessKit).
 - PySide6: not needed, S1 doesn't fall back.
 
 ## Measurements
 
-### In the cloud container, under Xvfb
+Run with `just measure` at 87c1ccf on the desktop, with the development
+copy of the library (11,849 tracks, 807 releases):
 
-Run with `just measure` at 2ef2c6c, on the fake library
-(`scripts/fake-library.py`: 11,800 tracks, 800 releases, generated
-1000 px JPEG covers):
-
-- CPU: Intel Xeon @ 2.10GHz (4 cores of a VM); Linux 6.18; Xvfb at
-  1600×1000, no window manager, no compositor, no D-Bus session; the GL
-  renderers run on Mesa's llvmpipe (OpenGL on the CPU)
-- Python 3.13.17, slint 1.18.1b1, beets 2.14.1
+- CPU: 11th Gen Intel Core i7-1185G7 @ 3.00GHz, GPU: Mesa Intel Iris Xe
+  (TGL GT2); Linux 7.2.12, KDE on X11, scale factor 2
+- Python 3.12.14, slint 1.18.1b1, beets 2.14.1
 - idle: 30 s after 5 s settling; startup: median of 5 runs, from starting
-  `python3`; the window is 1280×800 logical pixels at scale 1
+  `python3`; the window is 1280×800 logical pixels
 - scrolling: the tracks at 8,000 px/s, ten times the tracks at
   80,000 px/s (the same 38 seconds), the covers at 2,000 px/s; each
   scroll ends with 3 s to settle, and "after" is the last sample then
@@ -182,127 +196,134 @@ Startup (ms from starting `python3`):
 
 | renderer | what | event loop running | window created | library loaded |
 |---|---|---|---|---|
-| software | floor | 299.8 | 298.9 | - |
-| software | window | 344.2 | 355.0 | 438.6 |
-| software | window, 10× | 337.5 | 347.3 | 467.1 |
-| femtovg | floor | 322.1 | 321.2 | - |
-| femtovg | window | 330.9 | 341.0 | 582.1 |
-| skia | floor | 305.4 | 304.6 | - |
-| skia | window | 319.2 | 329.4 | 504.2 |
+| software | floor | 210.1 | 209.7 | - |
+| software | window | 224.0 | 303.8 | 400.3 |
+| software | window, 10× | 215.8 | 295.2 | 399.0 |
+| femtovg | floor | 232.3 | 231.8 | - |
+| femtovg | window | 226.4 | 304.9 | 390.2 |
+| skia | floor | 214.3 | 213.9 | - |
+| skia | window | 218.7 | 297.6 | 396.2 |
 
 Idle:
 
 | renderer | what | RSS MiB | PSS MiB | anon / file / shmem MiB | threads | CPU % |
 |---|---|---|---|---|---|---|
-| software | floor | 88.9 | 83.6 | 41.2 / 43.7 / 3.9 | 4 | 0.0 |
-| software | window | 127.7 | 122.3 | 74.5 / 49.3 / 3.9 | 4 | 0.0 |
-| software | window, 10× | 129.7 | 124.3 | 76.4 / 49.4 / 3.9 | 4 | 0.0 |
-| femtovg | floor | 178.5 | 154.3 | 78.8 / 95.8 / 3.9 | 13 | 0.0 |
-| femtovg | window | 244.9 | 220.7 | 129.9 / 111.0 / 3.9 | 13 | 0.0 |
-| skia | floor | 164.2 | 142.1 | 64.5 / 95.8 / 3.9 | 13 | 0.0 |
-| skia | window | 247.6 | 225.5 | 125.6 / 118.1 / 3.9 | 13 | 0.0 |
+| software | floor | 112.2 | 82.5 | 44.3 / 52.3 / 15.6 | 6 | 0.0 |
+| software | window | 151.8 | 121.3 | 80.0 / 56.1 / 15.6 | 6 | 0.0 |
+| software | window, 10× | 153.9 | 123.2 | 82.1 / 56.2 / 15.6 | 6 | 0.0 |
+| femtovg | floor | 168.4 | 108.3 | 66.0 / 102.4 / 0.0 | 13 | 0.0 |
+| femtovg | window | 201.0 | 140.3 | 95.1 / 105.9 / 0.0 | 10 | 0.0 |
+| skia | floor | 150.5 | 93.2 | 50.3 / 100.2 / 0.0 | 10 | 0.0 |
+| skia | window | 206.3 | 144.1 | 96.1 / 110.2 / 0.0 | 10 | 0.0 |
 
 Scrolling (CPU % of one core; the cover worker's decoding included):
 
 | renderer | what | CPU % | fps (median / min) | peak RSS MiB | RSS after MiB |
 |---|---|---|---|---|---|
-| software | tracks | 55.3 | 62 / 57 | 129.4 | 129.4 |
-| software | tracks, 10× | 89.2 | 49 / 38 | 129.7 | 129.7 |
-| software | covers, cold thumbnail cache | 118.3 | 62 / 60 | 158.4 | 158.4 |
-| software | covers, warm thumbnail cache | 40.9 | 61 / 60 | 155.1 | 155.1 |
-| femtovg | tracks | 127.4 | 58 / 46 | 248.7 | 248.7 |
-| femtovg | covers, warm thumbnail cache | 129.2 | 61 / 58 | 280.4 | 280.4 |
-| skia | tracks | 90.4 | 62 / 56 | 251.5 | 251.5 |
-| skia | covers, warm thumbnail cache | 79.5 | 61 / 52 | 285.5 | 285.5 |
+| software | tracks | 75.8 | 60 / 58 | 160.0 | 160.0 |
+| software | tracks, 10× | 91.0 | 36 / 32 | 161.4 | 160.9 |
+| software | covers, cold thumbnail cache | 144.3 | 62 / 62 | 271.8 | 270.8 |
+| software | covers, warm thumbnail cache | 58.6 | 62 / 62 | 185.9 | 184.9 |
+| femtovg | tracks | 48.2 | 60 / 60 | 210.1 | 209.7 |
+| femtovg | tracks, 10× | 90.0 | 57 / 55 | 211.0 | 210.5 |
+| femtovg | covers, cold thumbnail cache | 115.4 | 60 / 60 | 315.5 | 305.8 |
+| femtovg | covers, warm thumbnail cache | 48.6 | 60 / 60 | 237.7 | 236.7 |
+| skia | tracks | 50.9 | 60 / 60 | 244.2 | 243.8 |
+| skia | tracks, 10× | 91.7 | 56 / 52 | 245.0 | 244.5 |
+| skia | covers, cold thumbnail cache | 116.3 | 60 / 60 | 366.3 | –\* |
+| skia | covers, warm thumbnail cache | 48.5 | 60 / 60 | 278.2 | 277.1 |
 
-The full summary, with the rows left out here, is in the pull request.
-What the scrolls read: the table 11,800 rows for 11,800 tracks (67,452
-of 118,000 at 10×, where a frame skips rows), the grid about 4 reads per
-cell and one decode per cover (767–774 of the 769 covers; a few more
-when a cover was evicted and came back into view).
+\* The last sample was taken while roquette was exiting and had no
+memory figures; `scripts/measure.sh` now skips such samples.
+
+What the scrolls read: the table 11,849 rows for 11,849 tracks (67,732
+of 118,490 at 10×, where a frame skips rows); the grid about 2 reads per
+cell with a warm cache, and one decode per cover (718–726 with a warm
+cache). With a cold cache, covers that scrolled away before the worker
+decoded them were dropped (666 decoded with the software renderer), and
+covers evicted from the 32 MiB cache and seen again were decoded again
+(829–837 with the GL renderers).
+
+The same run in the cloud container under Xvfb (scale 1, the fake
+library, llvmpipe for GL; the full summary is in the pull request) gave
+the same picture: floor 88.9 MiB, window 127.7 MiB, 10× 129.7 MiB RSS
+with the software renderer, about 330 ms to the window.
 
 ### Reading the numbers
 
-- **The floor is about 89 MiB RSS** with the software renderer: a bare
-  Python is 9 MiB; importing beets adds about 17, slint 30, PyGObject
-  with GStreamer initialised and a `playbin3` 22, Pillow 4 (each measured
-  on its own; together 62 MiB before any window).
-- **The window adds about 39 MiB**, 33 of them anonymous: about 25 MiB
-  for the compiled `.slint` files, about 9 for the library index and the
-  rest for the window. Ten times the library adds 2 MiB: the index isn't
-  repeated, only its order, and rows exist only on screen.
-- **Startup**: the window is up about 350 ms after `python3` starts and
-  filled at about 440 ms. About 220 ms of it are imports (beets and
-  asyncio most), 90–100 ms compiling the `.slint` files. Ten times the
-  library costs nothing measurable.
+- **The floor is about 112 MiB RSS, 83 MiB PSS** with the software
+  renderer. A bare Python is 9 MiB; importing beets adds about 17,
+  slint 30, PyGObject with GStreamer initialised and a `playbin3` 22,
+  Pillow 4 (each measured on its own in the container). At scale 2 the
+  software renderer's frame buffer, shared with the X server, adds
+  15.6 MiB; it grows with the window.
+- **The window adds about 40 MiB** (RSS and PSS alike), 36 of them
+  anonymous: about 25 MiB for the compiled `.slint` files, about 9 for
+  the library index and the rest for the window. Ten times the library
+  adds 2 MiB: the index isn't repeated, only its order, and rows exist
+  only on screen.
+- **Startup**: the window is up about 300 ms after `python3` starts and
+  filled at 400 ms. The event loop runs after about 220 ms: the
+  interpreter, the imports (beets and asyncio most) and compiling the
+  `.slint` files (90–100 ms of 330 in the container). Showing the window
+  takes about 80 ms (see "Found on the desktop"), reading the library
+  index on the worker about 100. Ten times the library costs nothing
+  measurable.
 - **Idle CPU is zero** for every renderer: no timers run while nothing
   happens.
-- **Scrolling the table** at the benchmark's deliberately high speed
-  takes 55 % of a core at 62 fps with the software renderer; the
-  ten-times run at ten times the speed builds a whole screen of new rows
-  every frame (89 %, 49 fps). Rows cost Python time: each is a dict
-  built by `row_data`.
-- **Covers**: with a warm thumbnail cache the grid scrolls at 41 % of a
-  core including the decoding; a cold cache decodes the 1000 px JPEGs
-  and writes thumbnails, 118 % (the worker's core and the UI's).
-  Afterwards RSS is idle plus the cover cache's limit (32 MiB) and a
-  little: memory doesn't grow with the number of covers seen.
-- **The GL renderers** need about twice the memory (Mesa's driver: 50
-  more MiB of file-backed pages, 50 more of anonymous memory, nine more
-  threads) and, on llvmpipe, more CPU; on a real GPU their CPU figures
-  will be lower. ren measured the same picture on the desktop (0001
-  there: 42 MiB software, about 90 MiB with a GPU renderer).
-- Under Xvfb there's no compositor, no HiDPI and nothing shared with
-  other Qt or GL programs, so these figures are for comparing, not the
-  desktop's.
-
-### On the desktop
-
-Still to run, with the development copy of the library:
-
-```
-just dev-library   # if dev/beets doesn't exist yet
-just measure software femtovg skia
-```
-
-It takes about 15 minutes; don't touch the window meanwhile. The summary
-it prints replaces the numbers above in this record, and the budgets
-below are checked against it. A check by hand belongs with it: scrolling
-by mouse wheel and scrollbar, dragging files from Dolphin onto the
-playlist, following the desktop's colour scheme, and a look on Wayland
-and at HiDPI if at hand.
+- **Scrolling at scale 2** is where the software renderer pays for its
+  memory: the table takes 76 % of a core at 60 fps, against 48–51 % with
+  FemtoVG or Skia, and the ten-times run (a whole screen of new rows
+  every frame) drops it to 36 fps where the GL renderers keep 56–57. The
+  grid with a warm thumbnail cache: 59 % against 49 %. The benchmark's
+  speeds are deliberately extreme; scrolling by hand is far slower.
+- **Covers**: with a warm thumbnail cache, RSS after scrolling every
+  cover is idle plus the cover cache (32 MiB): memory doesn't grow with
+  the number of covers seen. With a cold cache it was about 86 MiB more,
+  fixed since (see "Found on the desktop").
+- **The GL renderers** cost about 50 MiB more RSS and 19–23 MiB more PSS
+  than the software renderer for the window (Mesa's driver and its
+  threads), about as in ren's measurements on the same machine.
 
 ## Budgets
 
-Proposed, for the dev library on the desktop with the software renderer,
-to be confirmed by the desktop measurements (they replace "Budgets" in
-the plan's "Performance" once accepted):
+For the dev library on the desktop with the software renderer; they
+replace the plan's first guesses in "Performance":
 
-- **Floor**: about 90 MiB RSS. It's fixed by Python, beets, Slint and
-  GStreamer; the budgets below are what roquette adds to it.
-- **Idle** (window open, paused, a module showing): under 150 MiB RSS,
-  as planned: S1's window is at 128, which leaves about 20 MiB for what
-  the real modules, the live playlist, MPRIS and scrobbling add. 0 % CPU.
+- **Floor**: about 112 MiB RSS, 83 MiB PSS, fixed by Python, beets,
+  Slint and GStreamer; the budgets below include it.
+- **Idle** (window open, paused, a module showing): under 175 MiB RSS and
+  145 MiB PSS, 0 % CPU, no wake-ups beyond what the toolkit needs. The
+  plan's 150 MB is already taken by S1's window at scale 2 (152 MiB RSS,
+  121 PSS); this leaves about 23 MiB for what the real modules, the live
+  playlist, MPRIS and scrobbling add. Where to win memory back if
+  needed: the compiled `.slint` files (25 MiB), imports made lazily.
+- **Playing**: as planned (S2 measures).
 - **After browsing** every release: idle plus the cover cache's limit
-  (32 MiB by default) plus at most 10 MiB.
+  (32 MiB by default) plus at most 10 MiB, with a cold thumbnail cache
+  too.
 - **Ten times the library**: idle within 10 MiB of the library's.
+- **Long runs**: RSS flat over an 8-hour playback run, as planned.
 - **Startup**: the window under 400 ms from starting `python3`, filled
-  under 500 ms, on a warm cache; the plan's "under a second" stays the
-  hard limit.
+  under 500 ms, on a warm cache; "under a second" stays the hard limit.
 - **Scrolling**: smooth (60 fps on a 60 Hz screen) through the table and
-  the grid at normal speeds; CPU is recorded at every milestone, not
-  budgeted.
+  the grid at the benchmark's speeds (not the ten-times run); CPU is
+  recorded at every milestone, not budgeted.
 
 ## Decision
 
-- **Slint from Python: yes**, if the desktop measurements confirm the
-  container's. Every part of the window could be built and every check
-  passed, with workarounds that are local and understood (lazy models,
-  a model per grid row, no Slint calls from workers). None of them is a
-  reason to fall back to PySide6, which therefore wasn't built.
-- **Renderer: software**, as in ren: half the memory of the GL renderers,
-  no GPU driver loaded, and 60 fps where it was measured. FemtoVG and
-  Skia stay selectable through `SLINT_BACKEND`.
+- **Slint from Python: yes.** Every part of the window could be built and
+  every check passed, with workarounds that are local and understood
+  (lazy models, a model per grid row, no Slint calls from workers). None
+  of them is a reason to fall back to PySide6, which therefore wasn't
+  built.
+- **Renderer: software**, as in ren: 50 MiB less RSS and about 20 MiB
+  less PSS than FemtoVG or Skia, and no GPU driver loaded, for a program
+  that's idle most of the time. The price is CPU while scrolling at
+  HiDPI (about 25 percentage points of a core more at the benchmark's
+  speed) and frames dropped only in the extreme ten-times scroll.
+  FemtoVG and Skia stay selectable through `SLINT_BACKEND`; M5 can make
+  the renderer a setting.
 - **Threading**: blocking work runs on worker threads, which never call
   into Slint; results reach the event loop through the inbox
   (`roquette/threads.py`), not `call_soon_threadsafe` or
@@ -330,8 +351,15 @@ the plan's "Performance" once accepted):
   through pyo3's deferred reference release; assigning a model reading
   every row; conversion errors that are only printed; the memory of the
   compiled `.slint` files staying alive with the window.
+- The plan's "Performance" takes the budgets above. M12 decodes covers
+  from the thumbnail size class that fits their physical size.
 - Open issues:
-  - The desktop measurements and the checks by hand (above).
+  - Measure the cold-cache cover scroll on the desktop again, with the
+    `malloc_trim()` fix (next `just measure`).
+  - The checks by hand: drag and drop from Dolphin, following the
+    desktop's colour scheme, Wayland.
+  - About 80 ms between creating and showing the window on the desktop
+    (M5).
   - Python's cyclic garbage collector running on a worker thread could
     still release Slint objects there; if it shows, collect only on the
     event loop's thread.
