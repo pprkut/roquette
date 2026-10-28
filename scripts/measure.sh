@@ -147,6 +147,8 @@ sample() {
         # The process may exit between the check and the reads.
         c=$(cpu_ticks "$pid" 2>/dev/null) || break
         m=$(mem_sample "$pid" 2>/dev/null) || break
+        # An exiting process has no memory figures left.
+        [[ $m =~ ^[0-9] ]] || break
         t=$(now)
         line=$m last_t=$t last_c=$c
         echo "$(awk -v t="$t" -v t0="$t0" 'BEGIN { printf "%.2f", t - t0 }'),${line// /,},$c" >>"$csv"
