@@ -226,6 +226,10 @@ export component MainWindow inherits Window {
                         interval: 16ms;
                         running: root.autoscrolling;
                         triggered => {
+                            // Nothing to scroll yet: the rows aren't there.
+                            if tracks.scroll-range <= 0 {
+                                return;
+                            }
                             if -tracks.content-y >= tracks.scroll-range {
                                 root.autoscrolling = false;
                                 root.autoscroll-finished();
@@ -265,6 +269,10 @@ export component MainWindow inherits Window {
                         interval: 16ms;
                         running: root.autoscrolling;
                         triggered => {
+                            // Nothing to scroll yet: the rows aren't there.
+                            if covers.scroll-range <= 0 {
+                                return;
+                            }
                             if -covers.content-y >= covers.scroll-range {
                                 root.autoscrolling = false;
                                 root.autoscroll-finished();
