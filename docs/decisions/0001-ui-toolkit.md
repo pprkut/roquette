@@ -153,12 +153,16 @@ Screenshots (Xvfb, fake library): `0001/tracks-light.webp`,
 - **Decoding covers left memory behind.** Scrolling once through the
   dev library's covers with a cold thumbnail cache left RSS about 86 MiB
   above idle plus the cover cache (271 against 185 MiB with a warm
-  cache). glibc keeps the memory freed by decoding large originals on
-  the worker thread for reuse instead of returning it. The cover worker
-  now calls `malloc_trim()` whenever it runs out of requests: in the
-  container, decoding 120 large covers (1400–3000 px, JPEG and PNG) left
-  21–54 MiB behind without it and 2 MiB with it. The desktop figure
-  after the fix is still to be measured (next `just measure`).
+  cache). Part of it is glibc keeping the memory freed by decoding on the
+  worker thread instead of returning it: the cover worker now calls
+  `malloc_trim()` whenever it runs out of requests. In the container,
+  decoding 120 large covers (1400–3000 px, JPEG and PNG) left 21–54 MiB
+  behind without it and 2 MiB with it. On the desktop it brought the
+  figure down to 240 MiB (re-run at 3d2c4db), still about 60 MiB above
+  the warm cache's 180 in the same run. That rest didn't show in the container, neither
+  with the fake library's 1000 px JPEGs nor with large covers, and
+  Pillow keeps no freed blocks of its own; what holds it is open, for
+  M12, whose done-criterion is the "after browsing" budget.
 - **HiDPI**: the desktop runs at a scale factor of 2 (the software
   renderer's 15.6 MiB frame buffer is 2560×1600 pixels). A cell's 160 px
   are then 320 physical pixels, but the "large" thumbnails are 256 px,
@@ -223,6 +227,7 @@ Scrolling (CPU % of one core; the cover worker's decoding included):
 | software | tracks | 75.8 | 60 / 58 | 160.0 | 160.0 |
 | software | tracks, 10× | 91.0 | 36 / 32 | 161.4 | 160.9 |
 | software | covers, cold thumbnail cache | 144.3 | 62 / 62 | 271.8 | 270.8 |
+| software | covers, cold, with `malloc_trim()`\*\* | 147.6 | 62 / 62 | 269.1 | 239.7 |
 | software | covers, warm thumbnail cache | 58.6 | 62 / 62 | 185.9 | 184.9 |
 | femtovg | tracks | 48.2 | 60 / 60 | 210.1 | 209.7 |
 | femtovg | tracks, 10× | 90.0 | 57 / 55 | 211.0 | 210.5 |
@@ -235,6 +240,9 @@ Scrolling (CPU % of one core; the cover worker's decoding included):
 
 \* The last sample was taken while roquette was exiting and had no
 memory figures; `scripts/measure.sh` now skips such samples.
+\*\* Re-run of the software renderer at 3d2c4db; its other memory and
+CPU figures were within 5 MiB and 1.5 percentage points of the first
+run's.
 
 What the scrolls read: the table 11,849 rows for 11,849 tracks (67,732
 of 118,490 at 10×, where a frame skips rows); the grid about 2 reads per
@@ -279,8 +287,8 @@ with the software renderer, about 330 ms to the window.
   speeds are deliberately extreme; scrolling by hand is far slower.
 - **Covers**: with a warm thumbnail cache, RSS after scrolling every
   cover is idle plus the cover cache (32 MiB): memory doesn't grow with
-  the number of covers seen. With a cold cache it was about 86 MiB more,
-  fixed since (see "Found on the desktop").
+  the number of covers seen. With a cold cache it's about 60 MiB more,
+  after a first fix took 30 off (see "Found on the desktop").
 - **The GL renderers** cost about 50 MiB more RSS and 19–23 MiB more PSS
   than the software renderer for the window (Mesa's driver and its
   threads), about as in ren's measurements on the same machine.
@@ -354,8 +362,10 @@ replace the plan's first guesses in "Performance":
 - The plan's "Performance" takes the budgets above. M12 decodes covers
   from the thumbnail size class that fits their physical size.
 - Open issues:
-  - Measure the cold-cache cover scroll on the desktop again, with the
-    `malloc_trim()` fix (next `just measure`).
+  - What holds the 60 MiB left after a cold-cache cover scroll on the
+    desktop (M12). First checks: a longer settle than the measurement's
+    3 s, and `MALLOC_MMAP_THRESHOLD_=131072` or `MALLOC_ARENA_MAX=2` to
+    tell glibc's part from the rest.
   - The checks by hand: drag and drop from Dolphin, following the
     desktop's colour scheme, Wayland.
   - About 80 ms between creating and showing the window on the desktop
