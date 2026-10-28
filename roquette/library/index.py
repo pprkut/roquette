@@ -12,12 +12,15 @@ against beets' own API.
 
 import os
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
 import beets.library
 from beets import config
+
+from roquette.playback.gain import ReplayGain
 
 
 class Track(NamedTuple):
@@ -102,6 +105,64 @@ def load_index(library: beets.library.Library) -> LibraryIndex:
             for row in tx.query(_RELEASES)
         ]
     return LibraryIndex(tracks, releases)
+
+
+class Playable(NamedTuple):
+    """What playing a track needs from beets."""
+
+    id: int
+    album_id: int
+    path: Path
+    length: float
+    replaygain: ReplayGain
+
+
+_PLAYABLE = """
+    SELECT id, album_id, path, length,
+           rg_track_gain, rg_track_peak, rg_album_gain, rg_album_peak
+    FROM items
+    WHERE id IN ({})
+"""
+
+# SQLite's limit of variables in a statement is 999 in older builds.
+_CHUNK = 900
+
+
+def load_playables(
+    library: beets.library.Library, ids: Sequence[int]
+) -> list[Playable]:
+    """The tracks `ids`, in that order; blocking, so for a worker thread.
+
+    Ids that aren't in the library are left out. S2's stand-in for what
+    M1's library layer will offer.
+    """
+    path_field = beets.library.Item._fields["path"]
+    found: dict[int, Playable] = {}
+    with library.music_dir_context(), library.transaction() as tx:
+        for start in range(0, len(ids), _CHUNK):
+            chunk = list(ids[start : start + _CHUNK])
+            sql = _PLAYABLE.format(", ".join("?" * len(chunk)))
+            for row in tx.query(sql, chunk):
+                found[row[0]] = Playable(
+                    row[0],
+                    row[1] or 0,
+                    Path(os.fsdecode(path_field.from_sql(row[2]))),
+                    row[3] or 0.0,
+                    ReplayGain.from_fields(
+                        {
+                            "rg_track_gain": row[4],
+                            "rg_track_peak": row[5],
+                            "rg_album_gain": row[6],
+                            "rg_album_peak": row[7],
+                        }
+                    ),
+                )
+    return [found[i] for i in ids if i in found]
+
+
+def query_ids(library: beets.library.Library, query: str) -> list[int]:
+    """The ids of the tracks a beets query finds, in beets' order."""
+    return [item.id for item in library.items(query) if item.id is not None]
 
 
 def _path(value: bytes | None) -> Path | None:
