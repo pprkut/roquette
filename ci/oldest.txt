@@ -5,3 +5,4 @@
 # of its range in pyproject.toml. CI tests them with
 # `scripts/setup-ci.sh --oldest`.
 beets==2.14.0
+Pillow==10.1.0
