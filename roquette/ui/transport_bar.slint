@@ -1,0 +1,172 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+
+import { Palette, Slider } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+component TransportButton inherits Rectangle {
+    in property <string> glyph;
+    in property <length> size: 32px;
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: self.width / 2;
+    background: touch.pressed ? Theme.selection(true) : touch.has-hover ? Theme.hover : transparent;
+
+    Text {
+        text: root.glyph;
+        font-size: root.size * 0.5;
+        color: Palette.foreground;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Now playing, play controls, seek bar and volume.
+export component TransportBar inherits Rectangle {
+    in property <string> title;
+    in property <string> artist;
+    in property <string> rating;
+    in property <bool> playing;
+    // Seconds.
+    in property <float> position;
+    in property <float> duration;
+    in property <string> position-text;
+    in property <string> duration-text;
+    in-out property <float> volume: 80;
+
+    callback previous();
+    callback play-pause();
+    callback next();
+    callback seek(position: float);
+
+    height: 64px;
+    background: Palette.alternate-background;
+
+    Rectangle {
+        y: 0px;
+        height: 1px;
+        background: Theme.separator;
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 12px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 48px;
+            height: 48px;
+            y: (parent.height - self.height) / 2;
+            background: Theme.cover-placeholder;
+        }
+
+        VerticalLayout {
+            width: 220px;
+            alignment: center;
+            spacing: 2px;
+
+            Text {
+                text: root.title;
+                overflow: elide;
+                font-weight: 600;
+                color: Palette.foreground;
+            }
+
+            Text {
+                text: root.artist;
+                overflow: elide;
+                font-size: 0.85rem;
+                color: Palette.foreground;
+                opacity: Theme.dim;
+            }
+
+            Text {
+                text: root.rating;
+                font-size: 0.85rem;
+                color: Theme.rating;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 4px;
+
+            TransportButton {
+                y: (parent.height - self.height) / 2;
+                glyph: "⏮";
+                clicked => {
+                    root.previous();
+                }
+            }
+
+            TransportButton {
+                y: (parent.height - self.height) / 2;
+                size: 40px;
+                glyph: root.playing ? "⏸" : "▶";
+                clicked => {
+                    root.play-pause();
+                }
+            }
+
+            TransportButton {
+                y: (parent.height - self.height) / 2;
+                glyph: "⏭";
+                clicked => {
+                    root.next();
+                }
+            }
+        }
+
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 8px;
+
+            Text {
+                text: root.position-text;
+                vertical-alignment: center;
+                color: Palette.foreground;
+            }
+
+            Slider {
+                horizontal-stretch: 1;
+                minimum: 0;
+                maximum: max(1, root.duration);
+                value: root.position;
+                released(value) => {
+                    root.seek(value);
+                }
+            }
+
+            Text {
+                text: root.duration-text;
+                vertical-alignment: center;
+                color: Palette.foreground;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 4px;
+
+            Text {
+                text: "🔊";
+                vertical-alignment: center;
+                color: Palette.foreground;
+            }
+
+            Slider {
+                width: 100px;
+                minimum: 0;
+                maximum: 100;
+                value <=> root.volume;
+            }
+        }
+    }
+}

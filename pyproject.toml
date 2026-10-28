@@ -28,6 +28,10 @@ dependencies = [
     "beets>=2.14",
     # Cover images, decoded and scaled to display size off the UI thread.
     "Pillow>=10.1",
+    # GStreamer, for playback.
+    "PyGObject>=3.50",
+    # The UI; only pre-releases of the Python bindings exist so far.
+    "slint>=1.18.1b1",
 ]
 dynamic = ["version"]
 
@@ -117,6 +121,12 @@ strict = true
 files = ["roquette", "beetsplug", "tests"]
 # beetsplug is a namespace package.
 explicit_package_bases = true
+
+# PyGObject has no type information of its own; S2 decides whether its
+# use warrants pygobject-stubs.
+[[tool.mypy.overrides]]
+module = ["gi", "gi.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

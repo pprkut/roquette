@@ -1,0 +1,184 @@
+// SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+// SPDX-License-Identifier: MIT
+
+import { ListView, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct CoverCell {
+    title: string,
+    artist: string,
+    year: string,
+    // Empty until the cover is loaded; `has-cover` is false for releases
+    // without one.
+    cover: image,
+    has-cover: bool,
+}
+
+// A row of the grid: the cells from index `first` on.
+export struct CoverRow {
+    first: int,
+    cells: [CoverCell],
+}
+
+component Cell inherits Rectangle {
+    in property <CoverCell> cell;
+    in property <bool> selected;
+    in property <bool> focused;
+    in property <data-transfer> drag-data;
+    callback clicked();
+    callback double-clicked();
+
+    width: Theme.cover-cell-width;
+    height: Theme.cover-cell-height;
+
+    Rectangle {
+        x: 4px;
+        y: 4px;
+        width: parent.width - 8px;
+        height: parent.height - 8px;
+        border-radius: Theme.selection-radius;
+        background: root.selected ? Theme.selection(root.focused) : touch.has-hover ? Theme.hover : transparent;
+        border-width: root.selected && root.focused ? 1px : 0px;
+        border-color: Theme.selection-border;
+    }
+
+    DragArea {
+        data: root.drag-data;
+        allow-copy: true;
+
+        touch := TouchArea {
+            clicked => {
+                root.clicked();
+            }
+            double-clicked => {
+                root.double-clicked();
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 2px;
+        alignment: start;
+
+        Rectangle {
+            width: Theme.cover-size;
+            height: Theme.cover-size;
+            background: Theme.cover-placeholder;
+
+            // The image is decoded at the size it's shown at, in physical
+            // pixels (see `MainWindow.scale-factor`), so it's drawn without scaling.
+            Image {
+                source: root.cell.cover;
+                width: parent.width;
+                height: parent.height;
+                image-fit: contain;
+            }
+
+            if !root.cell.has-cover: Text {
+                text: "♪";
+                font-size: 48px;
+                color: Palette.foreground;
+                opacity: 0.25;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: root.cell.title;
+            overflow: elide;
+            font-weight: 600;
+            color: Palette.foreground;
+        }
+
+        Text {
+            text: root.cell.year == "" ? root.cell.artist : "\{root.cell.artist} · \{root.cell.year}";
+            overflow: elide;
+            font-size: 0.85rem;
+            color: Palette.foreground;
+            opacity: Theme.dim;
+        }
+    }
+}
+
+// Releases as a grid of covers: a list of rows of `columns` cells, so only
+// the rows on screen exist. The model has a row per grid row, not a cell:
+// a binding like `cells[index]` depends on the whole model, and every
+// change to it would update every cell on screen.
+export component CoverGrid inherits FocusScope {
+    in property <[CoverRow]> rows;
+    in property <int> current: -1;
+
+    out property <int> columns: max(1, floor(list.visible-width / Theme.cover-cell-width));
+    changed columns => {
+        root.columns-changed(self.columns);
+    }
+
+    // For the autoscroll measurement.
+    in-out property <length> content-y <=> list.content-y;
+    out property <length> scroll-range: max(0px, list.content-height - list.visible-height);
+
+    // The model's rows must have this many cells now.
+    callback columns-changed(columns: int);
+    callback select(index: int);
+    callback activate(index: int);
+    pure callback drag-data(index: int) -> data-transfer;
+    // A navigation key: "left", "right", "up", "down", "home" or "end", and
+    // the number of cells per row.
+    callback navigate(key: string, columns: int);
+
+    changed current => {
+        // Keep the selected cell in view.
+        let top = floor(root.current / root.columns) * Theme.cover-cell-height;
+        if top < -list.content-y {
+            list.content-y = -top;
+        } else if top + Theme.cover-cell-height > -list.content-y + list.visible-height {
+            list.content-y = -(top + Theme.cover-cell-height - list.visible-height);
+        }
+    }
+
+    key-pressed(event) => {
+        if event.text == Key.LeftArrow {
+            root.navigate("left", root.columns);
+        } else if event.text == Key.RightArrow {
+            root.navigate("right", root.columns);
+        } else if event.text == Key.UpArrow {
+            root.navigate("up", root.columns);
+        } else if event.text == Key.DownArrow {
+            root.navigate("down", root.columns);
+        } else if event.text == Key.Home {
+            root.navigate("home", root.columns);
+        } else if event.text == Key.End {
+            root.navigate("end", root.columns);
+        } else if event.text == Key.Return {
+            root.activate(root.current);
+        } else {
+            return reject;
+        }
+        accept
+    }
+
+    list := ListView {
+        for row in root.rows: HorizontalLayout {
+            alignment: start;
+            padding-left: 6px;
+
+            for cell[column] in row.cells: Cell {
+                property <int> index: row.first + column;
+
+                cell: cell;
+                selected: self.index == root.current;
+                focused: root.has-focus;
+                drag-data: root.drag-data(self.index);
+                clicked => {
+                    root.focus();
+                    root.select(self.index);
+                }
+                double-clicked => {
+                    root.activate(self.index);
+                }
+            }
+        }
+    }
+}

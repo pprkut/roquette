@@ -13,7 +13,6 @@ export global Theme {
 
     // Rows
     out property <length> row-height: 26px;
-    out property <length> compact-row-height: 46px;
     out property <length> row-padding: 6px;
     out property <brush> alternate-row: root.dark ? #ffffff08 : #00000008;
     out property <brush> hover: Palette.accent-background.with-alpha(0.12);
@@ -27,28 +26,15 @@ export global Theme {
         return Palette.accent-background.with-alpha(focused ? 0.35 : 0.18);
     }
 
-    // Item status colours, as in akregator: new items red, unread green.
-    // Breeze's negative and positive text colours, unless the settings
-    // (`list.new-colour`, `list.unread-colour`) set others.
-    in property <bool> custom-new;
-    in property <color> new-colour;
-    in property <bool> custom-unread;
-    in property <color> unread-colour;
-    out property <color> default-new: root.dark ? #f0505f : #da4453;
-    out property <color> default-unread: root.dark ? #2ecc71 : #1e8449;
-    out property <brush> status-new: root.custom-new ? root.new-colour : root.default-new;
-    out property <brush> status-unread: root.custom-unread ? root.unread-colour : root.default-unread;
-    out property <brush> starred: root.dark ? #f6c342 : #c9a200;
-    // Breeze's negative text colour: feeds the server can't update.
-    out property <brush> negative: root.default-new;
+    // Secondary text: artists under titles, lengths, years.
+    out property <float> dim: 0.7;
+    out property <brush> rating: root.dark ? #f6c342 : #c9a200;
 
-    // Tree
-    out property <length> tree-indent: 18px;
-    out property <brush> branch-line: Palette.foreground.with-alpha(0.3);
-
-    // Icons
-    out property <length> toolbar-icon-size: 22px;
-    out property <length> tree-icon-size: 16px;
+    // Covers in the grid, and the cell around each.
+    out property <length> cover-size: 160px;
+    out property <length> cover-cell-width: 184px;
+    out property <length> cover-cell-height: 222px;
+    out property <brush> cover-placeholder: Palette.foreground.with-alpha(0.08);
 
     // Separators between panes and around headers
     out property <brush> separator: Palette.border;
