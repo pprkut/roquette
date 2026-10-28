@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-"""Wiring: S1's window on the beets library of `$BEETSDIR`."""
+"""Wiring: S1's window and S2's engine on the beets library of `$BEETSDIR`."""
 
 import argparse
 import asyncio
@@ -9,9 +9,16 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from roquette.measure import Stopwatch
 from roquette.threads import Inbox
+
+if TYPE_CHECKING:
+    import beets.library
+
+    from roquette.library.index import LibraryIndex
+    from roquette.playback.engine import Engine
 
 
 class NotADevelopmentCopy(Exception):
@@ -41,6 +48,13 @@ def thumbnail_dir() -> Path:
     return Path(cache) / "thumbnails"
 
 
+def make_engine(args: argparse.Namespace) -> "Engine":
+    """Load GStreamer and create the engine; blocking, for a worker thread."""
+    from roquette.playback.engine import Engine
+
+    return Engine(args.audio_sink, preamp=args.preamp)
+
+
 def run(args: argparse.Namespace) -> int:
     stopwatch = Stopwatch(args.measure)
     # The renderer of docs/decisions/0001-ui-toolkit.md; SLINT_BACKEND
@@ -49,7 +63,6 @@ def run(args: argparse.Namespace) -> int:
     import slint
 
     from roquette.library import index
-    from roquette.playback import load_gstreamer
     from roquette.ui import window as ui
 
     stopwatch.mark("imports done")
@@ -62,7 +75,7 @@ def run(args: argparse.Namespace) -> int:
     if args.floor:
         # Python, beets, Slint and GStreamer loaded, an empty window.
         library = index.open_library()
-        player = load_gstreamer()
+        engine = make_engine(args)
         stopwatch.mark("library and gstreamer loaded")
         empty = ui.load_ui("empty_window").EmptyWindow()
         empty.show()
@@ -72,7 +85,8 @@ def run(args: argparse.Namespace) -> int:
             stopwatch.mark("event loop running")
 
         slint.run_event_loop(floor())
-        del library, player
+        engine.close()
+        del library
         return 0
 
     compiled = ui.load_ui()
@@ -83,8 +97,12 @@ def run(args: argparse.Namespace) -> int:
         color_scheme=args.color_scheme,
         thumbnails=None if args.no_thumbnails else thumbnail_dir(),
         cover_cache_bytes=args.cover_cache << 20,
+        replaygain=args.replaygain,
+        replaygain_source=args.replaygain_source,
     )
     window: ui.MainWindow | None = None
+    # Lives as long as the window: the library is queried on it.
+    pool = ThreadPoolExecutor(2, "roquette worker")
 
     async def main() -> None:
         nonlocal window
@@ -94,20 +112,29 @@ def run(args: argparse.Namespace) -> int:
         window = ui.MainWindow(compiled, options, stopwatch, inbox)
         window.show()
         stopwatch.mark("window created")
-        # beets connections are per thread: the library is opened and
-        # read on the same worker.
-        with ThreadPoolExecutor(2, "roquette worker") as pool:
-            gstreamer = asyncio.ensure_future(inbox.run(pool, load_gstreamer))
-            library = await inbox.run(
-                pool, lambda: index.load_index(index.open_library())
-            )
-            window.set_index(library)
-            stopwatch.mark(
-                f"library loaded ({len(library.tracks)} tracks, "
-                f"{len(library.releases)} releases)"
-            )
-            window.player = await gstreamer
-            stopwatch.mark("gstreamer loaded")
+        gstreamer = asyncio.ensure_future(inbox.run(pool, lambda: make_engine(args)))
+
+        # beets connections are per thread (the Library object keeps one
+        # for each); the index is read on the worker that opened it.
+        def load() -> tuple["beets.library.Library", "LibraryIndex"]:
+            library = index.open_library()
+            return library, index.load_index(library)
+
+        library, library_index = await inbox.run(pool, load)
+        window.library = library
+        window.worker = pool
+        window.set_index(library_index)
+        stopwatch.mark(
+            f"library loaded ({len(library_index.tracks)} tracks, "
+            f"{len(library_index.releases)} releases)"
+        )
+        window.set_engine(await gstreamer)
+        stopwatch.mark("gstreamer loaded")
+        if args.play:
+            query = args.play
+            ids = await inbox.run(pool, lambda: index.query_ids(library, query))
+            by_id = {t.id: t for t in library_index.tracks}
+            window.play([by_id[i] for i in ids if i in by_id])
         if args.autoscroll:
 
             def finished() -> None:
@@ -121,4 +148,5 @@ def run(args: argparse.Namespace) -> int:
     finally:
         if window is not None:
             window.close()
+        pool.shutdown(wait=False, cancel_futures=True)
     return 0

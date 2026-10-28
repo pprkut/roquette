@@ -160,6 +160,8 @@ export component MainWindow inherits Window {
     callback previous();
     callback next();
     callback seek(position: float);
+    in-out property <float> volume: 80;
+    callback volume-changed(volume: float);
 
     // The autoscroll measurement: scrolls the module shown from top to
     // bottom at `autoscroll-speed`, then calls `autoscroll-finished`.
@@ -339,6 +341,10 @@ export component MainWindow inherits Window {
             }
             seek(position) => {
                 root.seek(position);
+            }
+            volume <=> root.volume;
+            volume-changed(volume) => {
+                root.volume-changed(volume);
             }
         }
     }

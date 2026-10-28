@@ -46,6 +46,8 @@ export component TransportBar inherits Rectangle {
     callback play-pause();
     callback next();
     callback seek(position: float);
+    // 0–100, on the slider's scale.
+    callback volume-changed(volume: float);
 
     height: 64px;
     background: Palette.alternate-background;
@@ -166,6 +168,9 @@ export component TransportBar inherits Rectangle {
                 minimum: 0;
                 maximum: 100;
                 value <=> root.volume;
+                changed(value) => {
+                    root.volume-changed(value);
+                }
             }
         }
     }
