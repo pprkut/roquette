@@ -36,6 +36,8 @@ GStreamer. It runs from the checkout, without installing; tasks are recipes of a
 - ``just fake-library`` makes a fake library of the same size with generated
   covers in ``build/fake-library``, for running Roquette without one
   (``BEETSDIR=build/fake-library/beets``).
+- ``just measure`` measures startup, memory and CPU of the window; it needs a
+  graphical session.
 - ``just check`` runs the checks CI runs (ruff, mypy, pytest, REUSE, typos, …);
   tools that aren't installed are skipped locally.
 
