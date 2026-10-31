@@ -5,10 +5,10 @@ SPDX-License-Identifier: MIT
 
 # 0002 — Playback: playbin3, ReplayGain from beets (spike S2)
 
-**Status:** proposed (2026-10-28). The automated check passes, and
-playback on the desktop is gapless by ear; the measurements on the
-desktop are still to do (see "Still to do on the desktop"), and decide
-whether this is accepted.
+**Status:** proposed (2026-10-28). The automated check passes,
+playback on the desktop is gapless by ear, and playing with the window
+shown is measured on the desktop (2026-10-31); playing minimised is
+still to do (see "Still to do on the desktop").
 
 ## Context
 
@@ -187,21 +187,57 @@ llvmpipe renders on the CPU, so its frames cost more here than on the
 desktop's GPU. "Minimised" couldn't be measured: Xvfb has no window
 manager to minimise to.
 
+### On the desktop
+
+`just measure` at 09820cd, 2026-10-31: i7-1185G7, Iris Xe (Mesa), KDE on
+X11, Linux 7.2.12, GStreamer 1.28.8, Python 3.12.14, slint 1.18.1b1,
+beets 2.14.1; the dev library (11,849 tracks). `PLAY_QUERY="Din Din"`
+(164 tracks, FLAC), 30 s after 5 s settling; autoaudiosink picked
+**pulsesink** (through pipewire-pulse). The window was only measured
+shown: `xdotool` wasn't installed.
+
+| renderer | what | CPU % | wake-ups/s (all / main) | RSS MiB | PSS MiB | threads |
+|---|---|---|---|---|---|---|
+| femtovg | window, idle | 0.0 | – | 201.4 | 168.5 | 12 |
+| femtovg | window, playing | 3.9 | 180.6 / 12.1 | 220.0 | 183.1 | 20 |
+| software | window, idle | 0.0 | – | 152.3 | 122.4 | 8 |
+| software | window, playing | 2.8 | 173.2 / 7.3 | 169.1 | 135.8 | 16 |
+| skia | window, idle | 0.0 | – | 206.2 | 172.1 | 12 |
+| skia | window, playing | 4.3 | 177.3 / 11.7 | 224.5 | 186.4 | 20 |
+
+- **Memory**: playing adds 17–19 MiB RSS, 13–15 MiB PSS, about 11 MiB
+  of it mapped files (the PulseAudio client and GStreamer's plugins), and
+  eight threads. More than in the container (6–9 MiB), which had no
+  audio client.
+- **The main thread** wakes 12 times a second with FemtoVG, 7 with the
+  software renderer: the position display, as in the container (16.6
+  and 9.5 there). FemtoVG's frames wake it more than the software
+  renderer's.
+- **All threads: about 175–180 wake-ups a second**, against 44–63 with
+  `fakesink` in the container, whatever the renderer. The difference is
+  the sink: pulsesink's ring buffer is in segments of `latency-time`,
+  10 ms by default, about 100 wake-ups a second for its thread alone,
+  plus the PulseAudio client's own thread. Not yet broken down per
+  thread; M2 sets the sink's buffer and latency times.
+- **CPU: 3.9 % of a core** with FemtoVG, 2.8 % with the software
+  renderer, against the plan's "well under 1 %" for decoding FLAC. The
+  share of the display isn't measured separately here; the renderers'
+  difference (about 1 %) is the part that is rendering for certain.
+- **ReplayGain in the dev library**: 21 items (one release, Disturbed's
+  *Ten Thousand Fists*) have no `rg_*` values in beets, and no tags
+  either: they play at the fallback gain.
+
 ## Still to do on the desktop
 
 - **The listening test**: a few releases known to be gapless (live albums,
   DJ mixes, classical works with continuous movements), played through
   with `just run --play 'album:…'`, listening for gaps, clicks and gain
   jumps at the transitions, in `--replaygain auto` (album gain). Done for
-  gaps: none heard on the desktop.
-- **`just measure`** with `PLAY_QUERY` set to a release longer than
-  `SETTLE_SECS` + `PLAY_SECS` (40 s by default) and `xdotool` installed:
-  CPU and wake-ups while playing, window shown and minimised, and which
-  sink autoaudiosink picks (pipewiresink, or pulsesink through
-  pipewire-pulse). Also with `AUDIO_SINK=pipewiresink` and
-  `AUDIO_SINK=pulsesink` for comparison.
-- How many items of the dev library have no `rg_*` values in beets (the
-  tags fallback, or the fallback gain, applies to them).
+  gaps: none heard on the desktop. Clicks and gain jumps not yet
+  confirmed.
+- **`just measure` with `xdotool` installed**, for playing with the
+  window minimised (`SCENARIOS=playing`). Also with
+  `AUDIO_SINK=pipewiresink` for comparison with pulsesink.
 
 ## Decision (proposed)
 
@@ -244,5 +280,5 @@ manager to minimise to.
     for URI handlers, not a documented guarantee. If it changes, the
     engine falls back to the order the URIs were set in and warns.
   - R128 gains (`r128_*`, Opus) aren't used; the library has no Opus.
-  - Whether autoaudiosink picks PipeWire directly, and whether that
-    matters for CPU, latency or wake-ups (desktop).
+  - autoaudiosink picks pulsesink on the desktop; whether pipewiresink
+    costs less in CPU, latency or wake-ups (desktop).
