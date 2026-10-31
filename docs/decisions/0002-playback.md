@@ -215,10 +215,11 @@ shown: `xdotool` wasn't installed.
   renderer's.
 - **All threads: about 175–180 wake-ups a second**, against 44–63 with
   `fakesink` in the container, whatever the renderer. The difference is
-  the sink: pulsesink's ring buffer is in segments of `latency-time`,
-  10 ms by default, about 100 wake-ups a second for its thread alone,
-  plus the PulseAudio client's own thread. Not yet broken down per
-  thread; M2 sets the sink's buffer and latency times.
+  most likely the sink: pulsesink's ring buffer is in segments of
+  `latency-time`, 10 ms by default, which would be about 100 wake-ups a
+  second for its thread alone, plus the PulseAudio client's own thread.
+  Not yet broken down per thread, and the container ran on another
+  machine; M2 sets the sink's buffer and latency times.
 - **CPU: 3.9 % of a core** with FemtoVG, 2.8 % with the software
   renderer, against the plan's "well under 1 %" for decoding FLAC. The
   share of the display isn't measured separately here; the renderers'
