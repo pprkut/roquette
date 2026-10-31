@@ -411,8 +411,9 @@ optional, module boundaries are not. Each spike ends with a decision record
   workarounds and what didn't. If S1 falls back to PySide6, the same
   measurements are taken there, for comparison.
   *Decides:* Slint-Python, or PySide6 + QML; the performance budgets.
-- **S2 — Playback.** *(automated check and listening for gaps done; the
-  desktop measurements are to do, see `docs/decisions/0002-playback.md`)*
+- **S2 — Playback.** *(automated check, listening for gaps and desktop
+  measurements with the window shown done; minimised is still to do, see
+  `docs/decisions/0002-playback.md`)*
   A minimal engine on `playbin3` under the S1 event loop:
   play a list of files, gapless across a live album, ReplayGain from tags
   and from the beets database (track and album), seek, position updates,
