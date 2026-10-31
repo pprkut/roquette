@@ -253,11 +253,12 @@ same way.
   therefore keeps "what plays next" (including the chosen version of the
   next recording) resolved ahead, available without the event loop.
 - **ReplayGain**: the gain has to change exactly at the track boundary, not
-  when the bus message arrives on the event loop. Either `rgvolume` reads
-  the tags in the stream (the files have `REPLAYGAIN_*` tags), or a pad
-  probe applies gain from the beets database when a new stream starts. S2
-  decides which; the beets database is preferred as the source, so that a
-  `beet replaygain` run is followed without depending on file tags.
+  when the bus message arrives on the event loop. A pad probe sets a
+  `volume` element (on 32-bit floats) from the beets database when a new
+  stream starts, so that a `beet replaygain` run is followed without
+  depending on file tags; files without values in beets use their
+  `REPLAYGAIN_*` tags. The peak limits the gain; no limiter. (S2, see
+  `docs/decisions/0002-playback.md`.)
 - **Mode**: album gain while consecutive tracks of the same release play in
   order, track gain otherwise (shuffle, mixed playlists, a swapped-in
   version from another release); pre-amp and clipping prevention via the
@@ -410,7 +411,10 @@ optional, module boundaries are not. Each spike ends with a decision record
   workarounds and what didn't. If S1 falls back to PySide6, the same
   measurements are taken there, for comparison.
   *Decides:* Slint-Python, or PySide6 + QML; the performance budgets.
-- **S2 — Playback.** A minimal engine on `playbin3` under the S1 event loop:
+- **S2 — Playback.** *(automated check, listening for gaps and desktop
+  measurements with the window shown done; minimised is still to do, see
+  `docs/decisions/0002-playback.md`)*
+  A minimal engine on `playbin3` under the S1 event loop:
   play a list of files, gapless across a live album, ReplayGain from tags
   and from the beets database (track and album), seek, position updates,
   output through PipeWire. An automated check renders a transition into an

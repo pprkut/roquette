@@ -4,22 +4,31 @@
 """The main window: the Slint component wired to the view models."""
 
 import asyncio
+import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from concurrent.futures import Executor
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import beets.library
 import slint
 
-from roquette.library.index import LibraryIndex, Track
+from roquette.library.index import LibraryIndex, Track, load_playables
 from roquette.measure import Stopwatch
 from roquette.modules.covers import CoverGrid
 from roquette.modules.tracks import TrackList, format_length
-from roquette.queue.pane import PlaylistPane, placeholder_groups, stars
+from roquette.playback.source import Source, State
+from roquette.queue.pane import PlaylistPane, placeholder_groups
+from roquette.queue.replaygain import make_sources
 from roquette.threads import Inbox
 from roquette.ui.models import CoverModel, PlaylistModel, TrackModel
+
+if TYPE_CHECKING:
+    # Imports GStreamer; the engine is made on a worker thread.
+    from roquette.playback.engine import Engine
 
 UI_DIR = Path(__file__).resolve().parent
 
@@ -39,6 +48,22 @@ class WindowOptions:
     # The shared thumbnail cache, or None to decode every cover itself.
     thumbnails: Path | None = None
     cover_cache_bytes: int = 32 << 20
+    # ReplayGain: "auto", "track", "album" or "off"; from "beets" or "tags".
+    replaygain: str = "auto"
+    replaygain_source: str = "beets"
+
+
+# The position display ticks once a second, this long after each second
+# of the track starts, so the text changes on every tick and only then.
+TICK_DELAY = 0.02
+# "Previous" goes back to the start of the track after this many seconds.
+RESTART_AFTER = 3.0
+
+
+def volume_factor(percent: float) -> float:
+    """The volume slider's 0–100 to a linear factor, on a cubic curve as
+    desktop volume controls use."""
+    return float((min(max(percent, 0.0), 100.0) / 100) ** 3)
 
 
 class MainWindow:
@@ -71,14 +96,20 @@ class MainWindow:
         self.playlist_model = PlaylistModel(self.pane, ui.PlaylistRowKind)
         w.playlist_rows = self.playlist_model
 
-        self.playing = False
-        self._position = 0.0
+        # Set once loaded: the engine (on its own a little after the
+        # library), the library and the worker to query it on.
+        self.engine: Engine | None = None
+        self.library: beets.library.Library | None = None
+        self.worker: Executor | None = None
+        # The tracks of what the engine plays, by the engine's index.
+        self._playing: list[Track] = []
+        # Counts the calls of `play`: only the latest one's look-up plays.
+        self._play_requests = 0
+        self._sink_noted = False
         self._ticker: asyncio.Task[None] | None = None
-        self._show_now_playing()
+        self._clear_now_playing()
 
         self.on_autoscroll_finished: Callable[[], None] | None = None
-        # GStreamer's playbin3, loaded but unused until S2.
-        self.player: Any = None
 
         w.module = MODULES.index(options.module)
         w.status = "Loading the library…"
@@ -101,9 +132,10 @@ class MainWindow:
         w.playlist_navigate = self._playlist_navigate
         w.playlist_dropped = self._playlist_dropped
         w.play_pause = self._play_pause
-        w.previous = lambda: None
-        w.next = lambda: None
+        w.previous = self._previous
+        w.next = self._next
         w.seek = self._seek
+        w.volume_changed = self._volume_changed
         w.autoscroll_finished = self._autoscroll_finished
 
     def show(self) -> None:
@@ -112,6 +144,19 @@ class MainWindow:
     def close(self) -> None:
         if self.cover_model is not None:
             self.cover_model.close()
+        if self._ticker is not None:
+            self._ticker.cancel()
+        if self.engine is not None:
+            self.engine.close()
+
+    def set_engine(self, engine: "Engine") -> None:
+        """The engine, attached to the running event loop."""
+        self.engine = engine
+        engine.attach(asyncio.get_running_loop())
+        engine.on_started = self._started
+        engine.on_state_changed = self._state_changed
+        engine.on_error = self._error
+        engine.volume = volume_factor(self.window.volume)
 
     def set_index(self, index: LibraryIndex) -> None:
         self.index = index
@@ -177,8 +222,13 @@ class MainWindow:
             self.window.track_current = row
 
     def _track_activate(self, row: int) -> None:
-        if self.track_list is not None and row >= 0:
-            self._append([self.track_list.track(row)])
+        """Play the track's release from the track on (S2's stand-in until
+        the live playlist, M3)."""
+        if self.track_list is None or row < 0:
+            return
+        track = self.track_list.track(row)
+        tracks = self._album_tracks_of(track.album_id) if track.album_id else [track]
+        self.play(tracks, tracks.index(track) if track in tracks else 0)
 
     def _track_sort(self, column: int) -> None:
         if self.track_list is None:
@@ -195,7 +245,8 @@ class MainWindow:
 
     def _track_menu(self, row: int, action: str) -> None:
         # The spike has no "next" in the playlist; both append.
-        self._track_activate(row)
+        if self.track_list is not None and row >= 0:
+            self._append([self.track_list.track(row)])
 
     def _track_drag_data(self, row: int) -> slint.DataTransfer:
         data = slint.DataTransfer()
@@ -223,8 +274,9 @@ class MainWindow:
             self.window.cover_current = index
 
     def _cover_activate(self, index: int) -> None:
+        """Play the release (S2's stand-in until the live playlist, M3)."""
         if self.cover_grid is not None and index >= 0:
-            self._append(self._release_tracks(index))
+            self.play(self._release_tracks(index))
 
     def _cover_navigate(self, key: str, columns: int) -> None:
         if self.cover_grid is not None and len(self.cover_grid):
@@ -239,13 +291,17 @@ class MainWindow:
         return data
 
     def _release_tracks(self, index: int) -> list[Track]:
-        assert self.index is not None and self.cover_grid is not None
+        assert self.cover_grid is not None
+        return self._album_tracks_of(self.cover_grid.release(index).id)
+
+    def _album_tracks_of(self, album_id: int) -> list[Track]:
+        assert self.index is not None
         if self._album_tracks is None:
             albums: defaultdict[int, list[Track]] = defaultdict(list)
             for track in self.index.tracks:
                 albums[track.album_id].append(track)
             self._album_tracks = dict(albums)
-        return self._album_tracks.get(self.cover_grid.release(index).id, [])
+        return self._album_tracks.get(album_id, [])
 
     # Playlist
 
@@ -280,42 +336,123 @@ class MainWindow:
         if isinstance(tracks, list) and all(isinstance(t, Track) for t in tracks):
             self._append(tracks)
 
-    # Transport: a stand-in that counts the position up while "playing".
+    # Transport
 
-    def _show_now_playing(self) -> None:
-        w = self.window
-        playing = self.pane.playing
-        if playing is None:
+    def play(self, tracks: Sequence[Track], start: int = 0) -> None:
+        """Play `tracks` from `start` on, once their files are looked up."""
+        if self.engine is None or self.library is None or self.worker is None:
             return
-        group = self.pane.groups[playing[0]]
-        entry = group.entries[playing[1]]
-        w.now_title = entry.title
-        w.now_artist = f"{entry.artist} · {group.title}"
-        w.now_rating = stars(entry.rating)
-        w.duration = entry.length
-        w.duration_text = format_length(entry.length)
-        self._show_position()
+        library, ids = self.library, [t.id for t in tracks]
+        self._play_requests += 1
+        request = self._play_requests
 
-    def _show_position(self) -> None:
-        self.window.position = self._position
-        self.window.position_text = format_length(self._position)
+        async def look_up() -> None:
+            assert self.worker is not None and self.engine is not None
+            playables = await self.inbox.run(
+                self.worker, lambda: load_playables(library, ids)
+            )
+            # Look-ups run on several workers and can finish out of order.
+            if request != self._play_requests:
+                return
+            by_id = {t.id: t for t in tracks}
+            playing = [by_id[p.id] for p in playables]
+            if not playing:
+                return
+            first = tracks[start].id
+            index = next((n for n, t in enumerate(playing) if t.id == first), 0)
+            sources = make_sources(
+                playables, self.options.replaygain, self.options.replaygain_source
+            )
+            self._playing = playing
+            self.engine.play(sources, index)
 
-    def _play_pause(self) -> None:
-        self.playing = not self.playing
-        self.window.playing = self.playing
-        if self.playing:
+        asyncio.get_running_loop().create_task(look_up())
+
+    def _started(self, index: int, source: Source) -> None:
+        track = self._playing[index]
+        w = self.window
+        w.now_title = track.title
+        w.now_artist = (
+            f"{track.artist} · {track.album}" if track.album else track.artist
+        )
+        w.now_rating = ""
+        w.duration = source.length or track.length
+        w.duration_text = format_length(w.duration)
+        self._show_position(0.0)
+        if self.engine is not None and not self._sink_noted:
+            self._sink_noted = True
+            self.stopwatch.note(f"audio sink: {self.engine.sink_name()}")
+        self.stopwatch.mark(f"playing track {index + 1} of {len(self._playing)}")
+
+    def _state_changed(self, state: State) -> None:
+        playing = state is State.PLAYING
+        self.window.playing = playing
+        if playing and self._ticker is None:
             self._ticker = asyncio.get_running_loop().create_task(self._tick())
-        elif self._ticker is not None:
+        elif not playing and self._ticker is not None:
             self._ticker.cancel()
             self._ticker = None
+        if state is State.STOPPED:
+            self._clear_now_playing()
+        elif self.engine is not None:
+            self._show_position(self.engine.position() or 0.0)
+
+    def _error(self, source: Source | None, message: str) -> None:
+        name = source.path.name if source is not None else "?"
+        print(f"roquette: can't play {name}: {message}", file=sys.stderr)
+
+    def _clear_now_playing(self) -> None:
+        w = self.window
+        w.now_title = ""
+        w.now_artist = ""
+        w.now_rating = ""
+        w.duration = 0.0
+        w.duration_text = format_length(0)
+        self._show_position(0.0)
+
+    def _show_position(self, position: float) -> None:
+        self.window.position = position
+        self.window.position_text = format_length(position)
 
     async def _tick(self) -> None:
-        # A few updates per second, as the position display will have.
+        # Only while playing; paused or stopped, nothing wakes up. Every
+        # change of the display costs a few frames, so it changes once a
+        # second, when the text does.
         while True:
-            await asyncio.sleep(0.25)
-            self._position = min(self.window.duration, self._position + 0.25)
-            self._show_position()
+            position = self.engine.position() if self.engine is not None else None
+            if position is None:
+                await asyncio.sleep(1.0)
+                continue
+            self._show_position(position)
+            await asyncio.sleep(1.0 - position % 1.0 + TICK_DELAY)
+
+    def _play_pause(self) -> None:
+        engine = self.engine
+        if engine is None:
+            return
+        if engine.state is State.PLAYING:
+            engine.pause()
+        elif engine.state is State.PAUSED:
+            engine.resume()
+        elif engine.sources:
+            engine.play(engine.sources)
+
+    def _previous(self) -> None:
+        engine = self.engine
+        if engine is None or engine.current is None:
+            return
+        if (engine.position() or 0.0) > RESTART_AFTER or not engine.skip(-1):
+            self._seek(0.0)
+
+    def _next(self) -> None:
+        if self.engine is not None:
+            self.engine.skip(1)
 
     def _seek(self, position: float) -> None:
-        self._position = position
-        self._show_position()
+        if self.engine is not None and self.engine.current is not None:
+            self.engine.seek(position)
+            self._show_position(position)
+
+    def _volume_changed(self, percent: float) -> None:
+        if self.engine is not None:
+            self.engine.volume = volume_factor(percent)

@@ -4,10 +4,11 @@
 #
 # Measures roquette's window for each variant: the floor (an empty window
 # with Python, beets, Slint and GStreamer loaded), startup, memory and CPU
-# while idle, and CPU, frame rate and memory while scrolling the track
-# list (the library and ten times the library) and the cover grid (with
-# a cold and a warm thumbnail cache). Needs a graphical session (X11 or
-# Wayland); don't touch the window while it runs.
+# while idle, CPU, frame rate and memory while scrolling the track list
+# (the library and ten times the library) and the cover grid (with a cold
+# and a warm thumbnail cache), and CPU, wake-ups and memory while playing
+# (with the window shown and minimised). Needs a graphical session (X11
+# or Wayland); don't touch the window while it runs.
 #
 # Usage: scripts/measure.sh [VARIANT...]
 #   VARIANT: a Slint renderer with the winit backend: software, femtovg,
@@ -26,6 +27,14 @@
 #                 the large one is scrolled SCALE times as fast)
 #   COVER_SPEED   scroll speed through the cover grid, px/s (default 2000)
 #   SCROLL_SECS   longest scroll (default 900); roquette is stopped then
+#   PLAY_QUERY    beets query for the playing runs, e.g. "album:Foo"; what
+#                 it finds must play for SETTLE_SECS + PLAY_SECS (without
+#                 it, the playing runs are skipped)
+#   PLAY_SECS     length of the playing measurements (default 30)
+#   AUDIO_SINK    --audio-sink for the playing runs (default: autoaudiosink's
+#                 choice; "fakesink sync=true" where there's no sound card)
+#   SCENARIOS     which measurements to run (default "startup idle scroll
+#                 playing"; the floor is part of startup and idle)
 #   OUT_DIR       logs, samples and the thumbnail cache the cover runs use
 #                 (default build/measure/<timestamp>)
 #
@@ -42,6 +51,10 @@ SCALE=${SCALE:-10}
 TRACK_SPEED=${TRACK_SPEED:-8000}
 COVER_SPEED=${COVER_SPEED:-2000}
 SCROLL_SECS=${SCROLL_SECS:-900}
+PLAY_QUERY=${PLAY_QUERY:-}
+PLAY_SECS=${PLAY_SECS:-30}
+AUDIO_SINK=${AUDIO_SINK:-}
+SCENARIOS=${SCENARIOS:-startup idle scroll playing}
 OUT_DIR=${OUT_DIR:-build/measure/$(date +%Y%m%d-%H%M%S)}
 
 variants=("$@")
@@ -114,6 +127,16 @@ event_ms() {
 }
 
 peak_rss() { awk '/^VmHWM:/ { print $2 }' "/proc/$1/status"; }
+
+# Context switches (voluntary and not) of all threads of a process, then of
+# its main thread: each one is the thread waking up or being woken.
+switches() {
+    awk '/^(non)?voluntary_ctxt_switches:/ { n += $2 } END { print n + 0 }' "/proc/$1"/task/*/status
+    awk '/^(non)?voluntary_ctxt_switches:/ { n += $2 } END { print n + 0 }' "/proc/$1/task/$1/status"
+}
+
+# Is scenario $1 to run?
+scenario() { [[ " $SCENARIOS " == *" $1 "* ]]; }
 
 stop() {
     kill "$1" 2>/dev/null || true
@@ -232,6 +255,39 @@ scroll() {
     echo "$cpu $fps_median $fps_min ${rss:-0} $peak"
 }
 
+# Plays $PLAY_QUERY with variant $1, the window shown or minimised ($3:
+# shown or hidden), and the arguments after them; prints "cpu wakeups_all
+# wakeups_main rss anon file shmem pss threads", and the sink in use to
+# $OUT_DIR/$variant-$name-play.note.
+playing() {
+    local variant=$1 name=$2 window=$3 cpu rest t0 t1 all0 main0 all1 main1
+    shift 3
+    local args=(--play "$PLAY_QUERY" --measure "$@")
+    if [[ -n $AUDIO_SINK ]]; then
+        args+=(--audio-sink "$AUDIO_SINK")
+    fi
+    LOG=$OUT_DIR/$variant-$name-play.log
+    start "$variant" "${args[@]}"
+    wait_for_line "$LOG" "playing track 1 " 60 || log "playback did not start, see $LOG"
+    if [[ $window == hidden ]]; then
+        xdotool search --sync --onlyvisible --pid "$pid" windowminimize >/dev/null ||
+            log "could not minimise the window"
+    fi
+    sleep "$SETTLE_SECS"
+    { read -r all0; read -r main0; } < <(switches "$pid")
+    t0=$(now)
+    read -r cpu rest < <(sample "$pid" "$OUT_DIR/$variant-$name-play.csv" 1 "$PLAY_SECS")
+    t1=$(now)
+    { read -r all1; read -r main1; } < <(switches "$pid" 2>/dev/null || printf '0\n0\n')
+    if grep -q "^roquette: playing track .* of .*" "$LOG" && ! kill -0 "$pid" 2>/dev/null; then
+        log "roquette exited while playing, see $LOG"
+    fi
+    stop "$pid"
+    sed -n 's/^roquette: audio sink: //p' "$LOG" | head -1 >"$OUT_DIR/$variant-$name-play.note"
+    awk -v c="$cpu" -v a0="$all0" -v a1="$all1" -v m0="$main0" -v m1="$main1" -v t0="$t0" -v t1="$t1" -v r="$rest" \
+        'BEGIN { d = t1 - t0; printf "%s %.1f %.1f %s\n", c, (a1 - a0) / d, (m1 - m0) / d, r }'
+}
+
 library_size=$(python3 -c '
 import sqlite3
 from beets import config
@@ -256,28 +312,51 @@ summary=$OUT_DIR/summary.md
     fi
     echo "- idle: ${IDLE_SECS} s after ${SETTLE_SECS} s settling; startup: median of ${STARTUP_RUNS} runs, from starting python3"
     echo "- scrolling: tracks at $TRACK_SPEED px/s, ${SCALE}× the tracks at $((TRACK_SPEED * SCALE)) px/s, covers at $COVER_SPEED px/s"
+    if [[ -n $PLAY_QUERY ]]; then
+        echo "- playing: \`$PLAY_QUERY\` for ${PLAY_SECS} s after ${SETTLE_SECS} s settling, audio sink ${AUDIO_SINK:-autoaudiosink}; GStreamer $(gst-inspect-1.0 --version 2>/dev/null | sed -n 's/^GStreamer //p' | head -1)"
+    fi
     echo
 } >"$summary"
 
-startup_rows=() idle_rows=() scroll_rows=() notes=() backends=()
+startup_rows=() idle_rows=() scroll_rows=() play_rows=() notes=() backends=()
 for v in "${variants[@]}"; do
-    log "== $v: floor"
-    read -r f_running f_created _ < <(STARTUP_UNTIL="event loop running" startup "$v" floor --floor)
-    read -r f_cpu f_rss f_anon f_file f_shmem f_pss f_threads f_peak < <(idle "$v" floor --floor)
-    startup_rows+=("| $v | floor | $f_running | $f_created | - |")
-    idle_rows+=("| $v | floor | $(mib "$f_rss") | $(mib "$f_pss") | $(mib "$f_anon") / $(mib "$f_file") / $(mib "$f_shmem") | $f_threads | $f_cpu | $(mib "$f_peak") |")
+    if scenario startup; then
+        log "== $v: startup"
+        read -r f_running f_created _ < <(STARTUP_UNTIL="event loop running" startup "$v" floor --floor)
+        startup_rows+=("| $v | floor | $f_running | $f_created | - |")
+        read -r running created loaded < <(startup "$v" window)
+        startup_rows+=("| $v | window | $running | $created | $loaded |")
+        read -r running created loaded < <(startup "$v" "window-x$SCALE" --scale "$SCALE")
+        startup_rows+=("| $v | window, ${SCALE}× | $running | $created | $loaded |")
+    fi
 
-    log "== $v: window"
-    read -r running created loaded < <(startup "$v" window)
-    read -r cpu rss anon file shmem pss threads peak < <(idle "$v" window)
-    startup_rows+=("| $v | window | $running | $created | $loaded |")
-    idle_rows+=("| $v | window | $(mib "$rss") | $(mib "$pss") | $(mib "$anon") / $(mib "$file") / $(mib "$shmem") | $threads | $cpu | $(mib "$peak") |")
+    if scenario idle; then
+        log "== $v: idle"
+        read -r f_cpu f_rss f_anon f_file f_shmem f_pss f_threads f_peak < <(idle "$v" floor --floor)
+        idle_rows+=("| $v | floor | $(mib "$f_rss") | $(mib "$f_pss") | $(mib "$f_anon") / $(mib "$f_file") / $(mib "$f_shmem") | $f_threads | $f_cpu | $(mib "$f_peak") |")
+        read -r cpu rss anon file shmem pss threads peak < <(idle "$v" window)
+        idle_rows+=("| $v | window | $(mib "$rss") | $(mib "$pss") | $(mib "$anon") / $(mib "$file") / $(mib "$shmem") | $threads | $cpu | $(mib "$peak") |")
+        read -r cpu rss anon file shmem pss threads peak < <(idle "$v" "window-x$SCALE" --scale "$SCALE")
+        idle_rows+=("| $v | window, ${SCALE}× | $(mib "$rss") | $(mib "$pss") | $(mib "$anon") / $(mib "$file") / $(mib "$shmem") | $threads | $cpu | $(mib "$peak") |")
+    fi
 
-    log "== $v: window, ${SCALE}× the library"
-    read -r running created loaded < <(startup "$v" "window-x$SCALE" --scale "$SCALE")
-    read -r cpu rss anon file shmem pss threads peak < <(idle "$v" "window-x$SCALE" --scale "$SCALE")
-    startup_rows+=("| $v | window, ${SCALE}× | $running | $created | $loaded |")
-    idle_rows+=("| $v | window, ${SCALE}× | $(mib "$rss") | $(mib "$pss") | $(mib "$anon") / $(mib "$file") / $(mib "$shmem") | $threads | $cpu | $(mib "$peak") |")
+    if scenario playing; then
+        if [[ -z $PLAY_QUERY ]]; then
+            log "== $v: playing skipped, PLAY_QUERY isn't set"
+        else
+            for window in shown hidden; do
+                if [[ $window == hidden ]] && ! command -v xdotool >/dev/null; then
+                    log "== $v: playing with the window minimised skipped, xdotool isn't installed"
+                    continue
+                fi
+                log "== $v: playing, window $window"
+                read -r cpu wake wake_main rss anon file shmem pss threads < <(playing "$v" "$window" "$window")
+                play_rows+=("| $v | window $window | $cpu | $wake / $wake_main | $(mib "$rss") | $(mib "$pss") | $threads | $(<"$OUT_DIR/$v-$window-play.note") |")
+            done
+        fi
+    fi
+
+    scenario scroll || continue
 
     log "== $v: scrolling the tracks"
     read -r cpu fps fps_min rss peak < <(scroll "$v" tracks --autoscroll tracks --autoscroll-speed "$TRACK_SPEED")
@@ -315,6 +394,14 @@ done
     echo "|---|---|---|---|---|---|---|---|"
     printf '%s\n' "${idle_rows[@]}"
     echo
+    if [[ ${#play_rows[@]} -gt 0 ]]; then
+        echo "### Playing"
+        echo
+        echo "| variant | what | CPU % | wake-ups/s (all threads / main) | RSS MiB | PSS MiB | threads | audio sink |"
+        echo "|---|---|---|---|---|---|---|---|"
+        printf '%s\n' "${play_rows[@]}"
+        echo
+    fi
     echo "### Scrolling"
     echo
     echo "| variant | what | CPU % | fps (median / min) | peak RSS MiB | RSS after MiB |"
