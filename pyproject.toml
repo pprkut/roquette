@@ -26,6 +26,9 @@ classifiers = [
 # deptry can check it.
 dependencies = [
     "beets>=2.14",
+    # The FMPS_RATING tag as a field of the beets plugin; beets uses it
+    # for all tags.
+    "mediafile>=0.17",
     # Cover images, decoded and scaled to display size off the UI thread.
     "Pillow>=10.1",
     # GStreamer, for playback.
@@ -126,6 +129,11 @@ explicit_package_bases = true
 # (docs/decisions/0002-playback.md).
 [[tool.mypy.overrides]]
 module = ["gi", "gi.*"]
+ignore_missing_imports = true
+
+# mediafile has no type information.
+[[tool.mypy.overrides]]
+module = ["mediafile"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
