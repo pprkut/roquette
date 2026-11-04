@@ -12,7 +12,11 @@ dev/beets/ and changes the copy so that
 - `pluginpath:` finds the roquette plugin in this checkout, which is
   enabled, with `roquette.library.writable` set,
 - beets doesn't write, move or copy music files (`write`, `move`,
-  `copy` off), as the music files are still the live ones.
+  `copy` off), as the music files are still the live ones,
+- the playlists of the `playlist` and `smartplaylist` plugins are
+  copies in dev/beets/ too: `beet` rewrites them after commands that
+  change the database (smartplaylist's `auto`, on by default) or move
+  and remove items (playlist's `auto`).
 
 The live database is opened read-only and copied with SQLite's online
 backup, so the copy is consistent even while `beet` is running.
@@ -114,11 +118,25 @@ def main() -> int:
     config["plugins"] = plugins
     config.setdefault("roquette", {}).setdefault("library", {})["writable"] = True
 
-    playlist_dir = config.get("playlist", {}).get("playlist_dir")
-    if playlist_dir:
-        playlists = target / "playlists"
-        shutil.copytree(Path(playlist_dir).expanduser(), playlists)
-        config["playlist"]["playlist_dir"] = str(playlists)
+    for plugin, directory in [
+        ("playlist", "playlists"),
+        ("smartplaylist", "smartplaylists"),
+    ]:
+        if plugin not in plugins:
+            continue
+        # Both plugins default to the current directory.
+        plugin_config = config.get(plugin) or {}
+        config[plugin] = plugin_config
+        source_dir = Path(plugin_config.get("playlist_dir", ".")).expanduser()
+        if not source_dir.is_absolute():
+            source_dir = source_dir.resolve()
+        copy_dir = target / directory
+        copy_dir.mkdir()
+        if source_dir.is_dir():
+            for path in source_dir.iterdir():
+                if path.suffix.lower() in (".m3u", ".m3u8") and path.is_file():
+                    shutil.copy2(path, copy_dir)
+        plugin_config["playlist_dir"] = str(copy_dir)
 
     with (target / "config.yaml").open("w", encoding="utf-8") as config_file:
         config_file.write(
