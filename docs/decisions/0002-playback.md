@@ -6,9 +6,10 @@ SPDX-License-Identifier: MIT
 # 0002 — Playback: playbin3, ReplayGain from beets (spike S2)
 
 **Status:** proposed (2026-10-28). The automated check passes,
-playback on the desktop is gapless by ear, and playing with the window
-shown is measured on the desktop (2026-10-31); playing minimised is
-still to do (see "Still to do on the desktop").
+playback on the desktop is gapless by ear, and playing is measured on
+the desktop with the window shown and minimised (2026-10-31 and
+2026-11-04); clicks and gain jumps at transitions are still to confirm
+(see "Still to do on the desktop").
 
 ## Context
 
@@ -193,8 +194,8 @@ manager to minimise to.
 X11, Linux 7.2.12, GStreamer 1.28.8, Python 3.12.14, slint 1.18.1b1,
 beets 2.14.1; the dev library (11,849 tracks). `PLAY_QUERY="Din Din"`
 (164 tracks, FLAC), 30 s after 5 s settling; autoaudiosink picked
-**pulsesink** (through pipewire-pulse). The window was only measured
-shown: `xdotool` wasn't installed.
+**pulsesink** (through pipewire-pulse). The first run measured the
+window shown only (`xdotool` wasn't installed).
 
 | renderer | what | CPU % | wake-ups/s (all / main) | RSS MiB | PSS MiB | threads |
 |---|---|---|---|---|---|---|
@@ -205,6 +206,21 @@ shown: `xdotool` wasn't installed.
 | skia | window, idle | 0.0 | – | 206.2 | 172.1 | 12 |
 | skia | window, playing | 4.3 | 177.3 / 11.7 | 224.5 | 186.4 | 20 |
 
+Minimised, at 63becfa on 2026-11-04 (the same machine and query;
+`measure.sh` before 63becfa didn't really minimise the window), FemtoVG
+only, two runs each:
+
+| what | CPU % | wake-ups/s (all / main) | RSS MiB | PSS MiB |
+|---|---|---|---|---|
+| window shown | 2.1, 3.3 | 185.1 / 15.1, 180.6 / 11.4 | 219.4, 219.5 | 183.8, 184.0 |
+| window minimised | 2.6, 2.4 | 201.1 / 15.2, 182.2 / 12.1 | 219.6, 219.1 | 183.9, 183.7 |
+
+- **Minimised makes no difference**: the main thread wakes as often as
+  with the window shown, as expected while the position display can't
+  tell the window is hidden (see "Wake-ups and the position display",
+  M5). The CPU differs more between runs (2.1 to 3.9 % shown) than
+  between shown and minimised; within a run, the per-second samples
+  spread by about 0.7 %.
 - **Memory**: playing adds 17–19 MiB RSS, 13–15 MiB PSS, about 11 MiB
   of it mapped files (the PulseAudio client and GStreamer's plugins), and
   eight threads. More than in the container (6–9 MiB), which had no
@@ -220,8 +236,8 @@ shown: `xdotool` wasn't installed.
   second for its thread alone, plus the PulseAudio client's own thread.
   Not yet broken down per thread, and the container ran on another
   machine; M2 sets the sink's buffer and latency times.
-- **CPU: 3.9 % of a core** with FemtoVG, 2.8 % with the software
-  renderer, against the plan's "well under 1 %" for decoding FLAC. The
+- **CPU: 2–4 % of a core** with FemtoVG (3.9 % in the run next to the
+  others), 2.8 % with the software renderer, against the plan's "well under 1 %" for decoding FLAC. The
   share of the display isn't measured separately here; the renderers'
   difference (about 1 %) is the part that is rendering for certain.
 - **ReplayGain in the dev library**: 21 items (one release, Disturbed's
@@ -236,9 +252,8 @@ shown: `xdotool` wasn't installed.
   jumps at the transitions, in `--replaygain auto` (album gain). Done for
   gaps: none heard on the desktop. Clicks and gain jumps not yet
   confirmed.
-- **`just measure` with `xdotool` installed**, for playing with the
-  window minimised (`SCENARIOS=playing`). Also with
-  `AUDIO_SINK=pipewiresink` for comparison with pulsesink.
+- Optional: `just measure` with `AUDIO_SINK=pipewiresink`, for
+  comparison with pulsesink (M2 otherwise).
 
 ## Decision (proposed)
 
