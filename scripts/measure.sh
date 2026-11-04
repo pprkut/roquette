@@ -98,6 +98,14 @@ start() {
     pid=$!
 }
 
+# Minimises the window of process $1 and waits until it's unmapped. (A
+# command after `xdotool search` would be taken for the search pattern.)
+minimise() {
+    local w
+    w=$(xdotool search --sync --onlyvisible --pid "$1" | head -1)
+    [[ -n $w ]] && timeout 10 xdotool windowminimize --sync "$w"
+}
+
 # User + system CPU time of a process, in clock ticks.
 cpu_ticks() {
     local stat
@@ -270,8 +278,7 @@ playing() {
     start "$variant" "${args[@]}"
     wait_for_line "$LOG" "playing track 1 " 60 || log "playback did not start, see $LOG"
     if [[ $window == hidden ]]; then
-        xdotool search --sync --onlyvisible --pid "$pid" windowminimize >/dev/null ||
-            log "could not minimise the window"
+        minimise "$pid" || log "could not minimise the window"
     fi
     sleep "$SETTLE_SECS"
     { read -r all0; read -r main0; } < <(switches "$pid")
