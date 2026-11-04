@@ -295,7 +295,9 @@ at scale 2):
   165 MiB PSS, 0% CPU, no wake-ups beyond what the toolkit needs.
 - **Playing**: CPU dominated by decoding (FLAC: well under 1% of a core);
   no more than a few wake-ups per second for the position display, none
-  while the window is hidden or minimised.
+  while the window is hidden or minimised. (S2: 2–4% CPU, about 12
+  main-thread wake-ups a second shown and minimised, 140–200 in all
+  threads; M2 and M5 work towards the budget.)
 - **After browsing** every release in Browse and back: idle plus the
   cover cache's limit (32 MiB by default) plus at most 10 MiB, not "idle
   plus every cover", with a cold thumbnail cache too.
@@ -411,9 +413,8 @@ optional, module boundaries are not. Each spike ends with a decision record
   workarounds and what didn't. If S1 falls back to PySide6, the same
   measurements are taken there, for comparison.
   *Decides:* Slint-Python, or PySide6 + QML; the performance budgets.
-- **S2 — Playback.** *(automated check, listening for gaps and desktop
-  measurements shown and minimised done; clicks and gain jumps at
-  transitions to confirm, see `docs/decisions/0002-playback.md`)*
+- **S2 — Playback.** *(done: `playbin3` with ReplayGain from the beets
+  database, see `docs/decisions/0002-playback.md`)*
   A minimal engine on `playbin3` under the S1 event loop:
   play a list of files, gapless across a live album, ReplayGain from tags
   and from the beets database (track and album), seek, position updates,
