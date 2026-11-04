@@ -221,6 +221,17 @@ only, two runs each:
   M5). The CPU differs more between runs (2.1 to 3.9 % shown) than
   between shown and minimised; within a run, the per-second samples
   spread by about 0.7 %.
+With `AUDIO_SINK=pipewiresink` (bd329cb, 2026-11-04, one run each):
+
+| what | CPU % | wake-ups/s (all / main) | RSS MiB | PSS MiB | threads |
+|---|---|---|---|---|---|
+| window shown | 3.1 | 143.1 / 12.6 | 222.1 | 185.4 | 21 |
+| window minimised | 2.7 | 142.2 / 12.1 | 222.4 | 185.7 | 21 |
+
+- **pipewiresink wakes about 40 times a second less** than pulsesink
+  (142 against 180–200, all threads), for the same CPU within the runs'
+  spread, about 3 MiB more and one more thread. The sink is part of the
+  difference to the container, not all of it.
 - **Memory**: playing adds 17–19 MiB RSS, 13–15 MiB PSS, about 11 MiB
   of it mapped files (the PulseAudio client and GStreamer's plugins), and
   eight threads. More than in the container (6–9 MiB), which had no
@@ -230,12 +241,12 @@ only, two runs each:
   and 9.5 there). FemtoVG's frames wake it more than the software
   renderer's.
 - **All threads: about 175–180 wake-ups a second**, against 44–63 with
-  `fakesink` in the container, whatever the renderer. The difference is
-  most likely the sink: pulsesink's ring buffer is in segments of
-  `latency-time`, 10 ms by default, which would be about 100 wake-ups a
-  second for its thread alone, plus the PulseAudio client's own thread.
-  Not yet broken down per thread, and the container ran on another
-  machine; M2 sets the sink's buffer and latency times.
+  `fakesink` in the container, whatever the renderer. Part of it is the
+  sink (pulsesink's ring buffer is in segments of `latency-time`, 10 ms
+  by default; pipewiresink wakes about 40 times a second less, see
+  above). The rest isn't broken down per thread yet, and the container
+  ran on another machine; M2 sets the sink's buffer and latency times
+  and chooses the sink.
 - **CPU: 2–4 % of a core** with FemtoVG (3.9 % in the run next to the
   others), 2.8 % with the software renderer, against the plan's "well under 1 %" for decoding FLAC. The
   share of the display isn't measured separately here; the renderers'
@@ -252,8 +263,6 @@ only, two runs each:
   jumps at the transitions, in `--replaygain auto` (album gain). Done for
   gaps: none heard on the desktop. Clicks and gain jumps not yet
   confirmed.
-- Optional: `just measure` with `AUDIO_SINK=pipewiresink`, for
-  comparison with pulsesink (M2 otherwise).
 
 ## Decision (proposed)
 
@@ -296,5 +305,5 @@ only, two runs each:
     for URI handlers, not a documented guarantee. If it changes, the
     engine falls back to the order the URIs were set in and warns.
   - R128 gains (`r128_*`, Opus) aren't used; the library has no Opus.
-  - autoaudiosink picks pulsesink on the desktop; whether pipewiresink
-    costs less in CPU, latency or wake-ups (desktop).
+  - autoaudiosink picks pulsesink on the desktop; pipewiresink wakes
+    less, for the same CPU. Its latency isn't measured (M2).
