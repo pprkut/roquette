@@ -21,6 +21,18 @@ fake-library *args:
 measure *variants:
     scripts/measure.sh {{variants}}
 
+# Measure loading, grouping and querying the beets library, and its memory as Items and as the compact index (S3)
+measure-library *args:
+    BEETSDIR=${BEETSDIR:-dev/beets} python3 scripts/measure-library.py {{args}}
+
+# Write to a copy of the beets library while `beet modify` and the like write to it (S3)
+library-locking *args:
+    BEETSDIR=${BEETSDIR:-dev/beets} python3 scripts/library-locking.py {{args}}
+
+# What loading the beets config's plugins costs and does; --all for every plugin beets ships (S3)
+beets-plugins *args:
+    BEETSDIR=${BEETSDIR:-dev/beets} python3 scripts/beets-plugins.py {{args}}
+
 # Install what CI and cloud sessions need (system libraries with apt, Python packages with pip); not for the development machine
 setup-ci:
     scripts/setup-ci.sh
