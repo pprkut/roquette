@@ -40,6 +40,9 @@ GStreamer. It runs from the checkout, without installing; tasks are recipes of a
   (``BEETSDIR=build/fake-library/beets``).
 - ``just measure`` measures startup, memory, CPU and wake-ups of the window,
   idle, scrolling and playing; it needs a graphical session.
+- ``just measure-library``, ``just library-locking`` and ``just beets-plugins``
+  measure the library layer: loading and querying the library, writing to it
+  while ``beet`` does, and loading the beets plugins.
 - ``just check`` runs the checks CI runs (ruff, mypy, pytest, REUSE, typos, …);
   tools that aren't installed are skipped locally.
 
