@@ -425,7 +425,9 @@ optional, module boundaries are not. Each spike ends with a decision record
   known gapless releases is clean, and CPU and wake-ups while playing
   (window shown and hidden) are recorded.
   *Decides:* ReplayGain source and mechanism, threading model of the engine.
-- **S3 — beets as the only backend.** On the dev copy: time to load and
+- **S3 — beets as the only backend.** *(in progress: measured on the
+  fake library, see `docs/decisions/0003-library.md`; the dev library's
+  figures are still to be made)* On the dev copy: time to load and
   group the whole library and typical queries, and to build the recording
   index; the memory of the whole library as beets `Item`s against a compact
   index (see "Design rules"), and whether the compact index can be built
