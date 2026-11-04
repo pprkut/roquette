@@ -5,11 +5,7 @@ SPDX-License-Identifier: MIT
 
 # 0002 — Playback: playbin3, ReplayGain from beets (spike S2)
 
-**Status:** proposed (2026-10-28). The automated check passes,
-playback on the desktop is gapless by ear, and playing is measured on
-the desktop with the window shown and minimised (2026-10-31 and
-2026-11-04); clicks and gain jumps at transitions are still to confirm
-(see "Still to do on the desktop").
+**Status:** accepted (2026-11-04).
 
 ## Context
 
@@ -255,16 +251,13 @@ With `AUDIO_SINK=pipewiresink` (bd329cb, 2026-11-04, one run each):
   *Ten Thousand Fists*) have no `rg_*` values in beets, and no tags
   either: they play at the fallback gain.
 
-## Still to do on the desktop
+## Listening test
 
-- **The listening test**: a few releases known to be gapless (live albums,
-  DJ mixes, classical works with continuous movements), played through
-  with `just run --play 'album:…'`, listening for gaps, clicks and gain
-  jumps at the transitions, in `--replaygain auto` (album gain). Done for
-  gaps: none heard on the desktop. Clicks and gain jumps not yet
-  confirmed.
+Releases known to be gapless played through on the desktop with
+`just run --play 'album:…'` in `--replaygain auto` (album gain): no
+gaps, clicks or gain jumps heard at the transitions.
 
-## Decision (proposed)
+## Decision
 
 - **ReplayGain source: the beets database**, so a `beet replaygain` run is
   followed without depending on file tags. Files beets has no values for
@@ -294,7 +287,10 @@ With `AUDIO_SINK=pipewiresink` (bd329cb, 2026-11-04, one run each):
   stand-in), and decides the mode per track.
 - M5: hidden windows (ask Slint for a visibility or occlusion property in
   Python), and why a change renders two to three frames.
-- The plan's "Playing" budget gets the desktop's numbers.
+- The plan's "Playing" budget stays as the goal, with the desktop's
+  numbers next to it: about 3 % CPU and 12 main-thread wake-ups a second
+  with FemtoVG, the same minimised. M2 (sink and buffers) and M5 (the
+  display while hidden, the frames per change) work towards it.
 - Open issues:
   - A flushing seek while the next file is already past the filter but
     not yet audible (the sink's buffer, a fraction of a second at the end
