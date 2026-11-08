@@ -287,7 +287,7 @@ def experiment(job: str, strategy: str, source_dir: Path, wal: bool) -> dict[str
     def quantile(values: list[float], q: float) -> float:
         if len(values) < 2:
             return values[0] if values else 0.0
-        return statistics.quantiles(values, n=100)[int(q) - 1]
+        return statistics.quantiles(values, n=100, method="inclusive")[int(q) - 1]
 
     return {
         "job": job,
