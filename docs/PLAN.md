@@ -269,15 +269,20 @@ same way.
 - The library has ~11,800 items in ~800 albums, almost all FLAC, with
   MusicBrainz recording IDs on every item. Grouping, sorting and the model
   must stay smooth at 10× that.
-- beets connections are per thread; queries run on a worker thread.
+- beets connections are per thread; reads run on one worker thread,
+  writes on another, never in parallel (S3: parallel reads are slower).
 - Writing flexible attributes while `beet` runs on the same database (an
-  import, `mbsync`) must not lose data or block the UI: short transactions,
-  retries on `database is locked` (S3).
-- roquette loads the plugins listed in the beets config, so field types
-  (`types`, `inline`, its own plugin) are known. Loading a plugin only
-  registers it; side effects such as `fetchart` or `lyrics` happen on
-  import events, which roquette never triggers. S3 verifies that for the
-  plugins in use.
+  import, `mbsync`) must not lose data or block the UI: short
+  transactions through a `Library` of their own, retries on `database is
+  locked` for reads and writes (S3, `docs/decisions/0003-library.md`).
+- roquette loads the plugins of the beets config that add something it
+  uses (its own, `types`, `inline`, `playlist`, `smartplaylist`; more
+  with `roquette.beets_plugins`), so their field types are known.
+  Loading a plugin only registers it, but the config's plugins together
+  cost about 50 MiB (S3).
+- Queries run as SQL for ids. Queries on flexible attributes, which
+  beets matches in Python on every Item, get SQL query classes from the
+  roquette plugin for its fields (S3).
 - roquette's play-count/skip/last-played logic would conflict with
   `mpdstats` only if both ran for the same library at once; they don't.
 
@@ -312,9 +317,11 @@ at scale 2):
 
 - **Never hold the whole library as beets objects.** A beets `Item`
   carries every field and its flexible attributes. The resident index
-  (releases, recordings, the tree) keeps ids and the few fields it shows,
-  in compact form (tuples, arrays, interned strings). Full `Item`s are
-  fetched for what's visible and dropped again. S3 measures both.
+  (releases, recordings, the tree) keeps ids and the numbers it sorts
+  and groups by, as columns (`array`s); the text it shows is read by id
+  for the rows on screen. Full `Item`s are fetched for what's visible
+  in detail and dropped again: even briefly, an Item per track leaves
+  its memory behind (S3).
 - **Views are virtualised.** Models build rows when the view asks for
   them; nothing is materialised for rows that aren't on screen.
 - **Modules are lazy.** A module is imported and built when first shown;
@@ -425,9 +432,9 @@ optional, module boundaries are not. Each spike ends with a decision record
   known gapless releases is clean, and CPU and wake-ups while playing
   (window shown and hidden) are recorded.
   *Decides:* ReplayGain source and mechanism, threading model of the engine.
-- **S3 — beets as the only backend.** *(in progress: measured on the
-  fake library, see `docs/decisions/0003-library.md`; the dev library's
-  figures are still to be made)* On the dev copy: time to load and
+- **S3 — beets as the only backend.** *(done: beets through narrow SQL
+  and a columnar index, a write path of its own, see
+  `docs/decisions/0003-library.md`)* On the dev copy: time to load and
   group the whole library and typical queries, and to build the recording
   index; the memory of the whole library as beets `Item`s against a compact
   index (see "Design rules"), and whether the compact index can be built
@@ -448,10 +455,13 @@ then S2, the riskiest functionally, then S3.
 From here on every milestone ships with tests.
 
 - **M1 — Library layer.** Config discovery (`BEETSDIR`, `--beets-config`,
-  default), the read-only guard, queries with sort, the release/medium/track
+  default), the read-only guard (`mode=ro` connections), the plugins
+  roquette loads, queries with sort (as ids from SQL, with the roquette
+  plugin's SQL queries for its flexible fields), the release/medium/track
   grouping (releases by `album_id`, singletons in their own group, artist
-  sort names), the recording index with version ranking, incremental
-  search.
+  sort names) over a columnar index, the recording index with version
+  ranking, incremental search, the reader and writer workers with the
+  write path of S3, a file watch on the database for outside changes.
 - **M2 — Playback engine.** Hardened S2: state machine, gapless, ReplayGain
   modes, errors (missing file, unsupported format: skip and report),
   output device selection, events.

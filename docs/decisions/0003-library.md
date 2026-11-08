@@ -5,8 +5,7 @@ SPDX-License-Identifier: MIT
 
 # 0003 — beets as the only backend (spike S3)
 
-**Status:** proposed (2026-11-04); the measurements on the dev library
-are still to be made (see "Still to do on the desktop").
+**Status:** proposed (2026-11-08).
 
 ## Context
 
@@ -20,10 +19,13 @@ flexible attributes while `beet` writes to the same database, the
 `FMPS_RATING` tag through the roquette plugin, the `roquette:` settings
 and the `playlist` plugin's M3U files.
 
-S3 was done in a cloud session, without the dev library: the figures
-below are from the fake library of `just fake-library`, which was made
-to look like the dev library for this (see "What was built"). The same
-scripts run on the dev copy; their results are to be added.
+S3 was built in a cloud session, without the dev library, and measured
+there on the fake library of `just fake-library`, made to look like the
+dev library for this (see "What was built"), at its size and at ten
+times. The same scripts were then run on the dev copy on the desktop
+("The dev library, on the desktop"), which confirmed the picture and
+added two findings: the configured plugins' memory, and reads that
+time out in the rollback journal.
 
 ## What was built
 
@@ -62,7 +64,115 @@ scripts run on the dev copy; their results are to be added.
 
 ## Findings
 
-### The whole library: Items against the compact index
+### The dev library, on the desktop
+
+The dev copy (11,849 tracks, 807 releases, no singletons, 52,771
+flexible attributes, a 76 MiB database), on the desktop of S1 and S2
+(i7-1185G7), Python 3.12.14, beets 2.14.1; `just measure-library`
+(median of 3), `just library-locking` and `--wal`, `just beets-plugins`.
+
+Opening the library: the imports take 73 ms and 37.6 MiB, opening it
+1 ms. **Loading the config's plugins takes 188 ms and 51 MiB** (chroma,
+info, inline, lyrics, mbsync, metasync, missing, replaygain and
+roquette; `fetchart` is in the config but didn't load on the desktop):
+
+| plugin | ms | MiB | listens to | types |
+|---|---|---|---|---|
+| chroma | 81.8 | 28.6 | import events | |
+| lyrics | 143.0 | 34.6 | | lyrics_* |
+| replaygain | 33.9 | 19.8 | import events | |
+| missing | 70.4 | 17.4 | | |
+| mbsync | 31.7 | 11.9 | | |
+| metasync | 15.8 | 8.0 | | amarok_*, itunes_* |
+| info, inline, roquette | 2.2–2.4 | 0.1 | | roquette's |
+| **all of them** | **204.3** | **56.0** | import events | |
+
+None writes a file, starts a thread or contacts the network when
+loaded, none listens to the events roquette sends, and a `store()`
+costs 0.1 ms with them.
+
+The whole library (memory in MiB above the opened library):
+
+| what | ms | peak MiB | kept MiB |
+|---|---|---|---|
+| all Items | 1,183 | 170.4 | 169.4 |
+| all Albums | 23 | 5.5 | 5.5 |
+| the index through beets' API | 2,231 | 173.3 | 63.1 |
+| the index, narrow SQL (S1) | 60 | 11.3 | 9.6 |
+| the index + recording index + grouping | 182 | 9.8 | 9.8 |
+| the index as columns of numbers | 35 | 3.5 | 2.3 |
+
+An Item of the dev library is 14.7 KiB (the fake library's 10.7). The
+recording index: 1,064 tracks in 491 recordings with versions (as the
+plan counted), 33 ms, 0.1 MiB; the grouping 807 releases in 3.6 ms. A
+screen of text by id: 0.1 ms.
+
+Queries (ms):
+
+| query | in SQL | matches | Items | ids | ids in SQL |
+|---|---|---|---|---|---|
+| `albumartist:Various` | yes | 2,612 | 349 | 10 | |
+| `Up` (any field) | yes | 569 | 130 | 27 | |
+| `Up year:1990..1999` | yes | 45 | 60 | 27 | |
+| `year:1990..1999` | yes | 444 | 70 | 8 | |
+| `format:MP3` | yes | 2 | 34 | 17 | |
+| `albumtype:single` | yes | 568 | 107 | 18 | |
+| `singleton:true` | yes | 0 | 0.2 | 0.1 | |
+| `added:-1y..` | yes | 25 | 36 | 16 | |
+| `title::^The` | yes | 432 | 92 | 19 | |
+| `fmps_rating:0.8..` | **no** | 52 | 3,078 | 3,067 | 2.4 |
+| `play_count:1..` | **no** | 0 | 3,068 | 3,073 | 2.4 |
+| `last_played:-1y..` | **no** | 0 | 3,077 | 3,075 | 2.3 |
+
+Connections: 3.4 MiB each; one index read 70 ms, four through one
+`Library` 270 ms, four with a `Library` each 1,159 ms (4.3 times as
+long; less than the container's 15 times, still slower than one after
+the other).
+
+Writing while `beet` writes (p50 / max; the reader's 99th percentiles
+are left out, see "Writing while `beet` writes"):
+
+| job | strategy | journal | writes | failed | retries | write ms | read ms | failed reads | lost |
+|---|---|---|---|---|---|---|---|---|---|
+| modify | beets | rollback | 180 | 0 | 0 | 3 / 1,146 | 1.7 / 1,145 | 0 | 0 |
+| modify | roquette | rollback | 200 | 0 | 4 | 3 / 1,065 | 0.4 / 1,130 | 0 | 0 |
+| mbsync | beets | rollback | 213 | 0 | 0 | 5 / 23 | 1.2 / 22 | 0 | 0 |
+| mbsync | roquette | rollback | 212 | 0 | 0 | 5 / 23 | 0.9 / 20 | 0 | 0 |
+| update | beets | rollback | 14 | **1** | 0 | 5 / 5,010 | 0.9 / 9,145 | 0 | 0 |
+| update | roquette | rollback | 5 | 0 | 14 | 22 / 9,907 | 0.7 / 5,006 | **1** | 0 |
+| modify | beets | WAL | 163 | 0 | 0 | 2 / 932 | 0.9 / 932 | 0 | 0 |
+| modify | roquette | WAL | 198 | 0 | 3 | 2 / 858 | 0.3 / 1 | 0 | 0 |
+| mbsync | beets | WAL | 213 | 0 | 0 | 3 / 22 | 0.9 / 21 | 0 | 0 |
+| mbsync | roquette | WAL | 213 | 0 | 0 | 3 / 22 | 0.8 / 2 | 0 | 0 |
+| update | beets | WAL | 16 | **1** | 0 | 2 / 5,009 | 0.8 / 5,008 | 0 | 0 |
+| update | roquette | WAL | 9 | 0 | 13 | 2 / 9,906 | 0.6 / 2 | 0 | 0 |
+
+All of `beet`'s changes arrived and no play count was lost, in every
+run. What the desktop adds to the container's results:
+
+- **The plugins are the largest item.** 51–56 MiB for the config's
+  plugins is a quarter of the idle budget (225 MiB RSS), and S1's and
+  S2's window, which loaded no plugins, already takes 201 MiB with
+  FemtoVG. roquette needs nothing from most of them: chroma, mbsync,
+  missing and replaygain are `beet` commands and import steps, lyrics
+  declares the types of the lyrics metadata, metasync those of
+  Amarok's and iTunes' fields. Only the roquette plugin, `inline`
+  (computed fields) and `types` (the user's own field types) add
+  something roquette uses, for 0.1 MiB each; `playlist` and
+  `smartplaylist` will for M13.
+- **Reads time out in the rollback journal.** With the write strategy,
+  a read waited for the update-like job's exclusive lock until its 5 s
+  timeout and failed: the dev library's larger database makes the job's
+  changes outgrow SQLite's page cache sooner, and `beet` then holds the
+  exclusive lock until it commits. Reads need retries as writes do. In
+  WAL mode no read waited more than 2 ms.
+- The flexible-attribute queries take 3.1 s in beets and 2.4 ms in SQL.
+  The dev library has no play statistics yet, and 52 tracks with
+  `fmps_rating` (M9 imports the rest).
+
+### The fake library, in the container
+
+#### The whole library: Items against the compact index
 
 `just measure-library` on the fake library (11,800 tracks, 800
 releases, 54,864 flexible attributes, a 36 MiB database), in the cloud
@@ -133,7 +243,7 @@ a 364 MiB database; one run):
   views show is read for the rows on screen, which the lazy models of S1
   already ask for one at a time.
 
-### Queries
+#### Queries
 
 The time to get what a beets query matches, as Items
 (`list(lib.items(q))`) and as ids only (the query's SQL from beets'
@@ -179,7 +289,7 @@ and 36–49 ms in SQL.
 - `beet` sorts and limits flexible attributes in Python too (`sort.is_slow()`);
   sorting by rating or play count needs the same treatment.
 
-### Connections and threads
+#### Connections and threads
 
 - beets makes **a connection per thread** (keyed by the thread's id)
   and keeps it until the library is closed: 8 threads that each read
@@ -201,7 +311,7 @@ and 36–49 ms in SQL.
   (S1); `Library(set_music_dir=False)` keeps a second `Library` from
   changing the process' music directory.
 
-### Writing while `beet` writes
+#### Writing while `beet` writes
 
 `just library-locking` on a copy of the fake library: roquette's
 writer thread adds 1 to a random item's `play_count` every 100 ms
@@ -214,24 +324,27 @@ library, 0.5 ms "stat" per item, every twentieth item changed, 10 s).
 "beets" is one `Library` for both threads with beets' timeout of 5 s;
 "roquette" is the write strategy below.
 
-| job | strategy | journal | writes | failed | retries | write ms p50 / max | read ms p50 / p99 / max | lost |
+| job | strategy | journal | writes | failed | retries | write ms p50 / max | read ms p50 / max | lost |
 |---|---|---|---|---|---|---|---|---|
-| modify | beets | rollback | 188 | 0 | 0 | 4 / 934 | 0.6 / 28 / 933 | 0 |
-| modify | roquette | rollback | 191 | 0 | 5 | 4 / 1,222 | 0.5 / 19 / 1,187 | 0 |
-| mbsync | beets | rollback | 211 | 0 | 0 | 4 / 19 | 0.6 / 6 / 10 | 0 |
-| mbsync | roquette | rollback | 211 | 0 | 0 | 4 / 33 | 0.6 / 17 / 41 | 0 |
-| update | beets | rollback | 15 | **1** | 0 | 3 / 5,018 | 1.3 / 5,759 / 5,017 | 0 |
-| update | roquette | rollback | 7 | 0 | 14 | 7 / 9,940 | 0.5 / 1,235 / 2,536 | 0 |
-| modify | beets | WAL | 197 | 0 | 0 | 2 / 934 | 0.5 / 3 / 895 | 0 |
-| modify | roquette | WAL | 183 | 0 | 2 | 2 / 644 | 0.5 / 1 / 3 | 0 |
-| mbsync | beets | WAL | 213 | 0 | 0 | 2 / 26 | 0.6 / 5 / 19 | 0 |
-| mbsync | roquette | WAL | 213 | 0 | 0 | 2 / 11 | 0.5 / 1 / 3 | 0 |
-| update | beets | WAL | 18 | **1** | 0 | 2 / 5,016 | 0.7 / 5,630 / 5,015 | 0 |
-| update | roquette | WAL | 9 | 0 | 13 | 2 / 9,935 | 0.5 / 3 / 3 | 0 |
+| modify | beets | rollback | 188 | 0 | 0 | 4 / 934 | 0.6 / 933 | 0 |
+| modify | roquette | rollback | 191 | 0 | 5 | 4 / 1,222 | 0.5 / 1,187 | 0 |
+| mbsync | beets | rollback | 211 | 0 | 0 | 4 / 19 | 0.6 / 10 | 0 |
+| mbsync | roquette | rollback | 211 | 0 | 0 | 4 / 33 | 0.6 / 41 | 0 |
+| update | beets | rollback | 15 | **1** | 0 | 3 / 5,018 | 1.3 / 5,017 | 0 |
+| update | roquette | rollback | 7 | 0 | 14 | 7 / 9,940 | 0.5 / 2,536 | 0 |
+| modify | beets | WAL | 197 | 0 | 0 | 2 / 934 | 0.5 / 895 | 0 |
+| modify | roquette | WAL | 183 | 0 | 2 | 2 / 644 | 0.5 / 3 | 0 |
+| mbsync | beets | WAL | 213 | 0 | 0 | 2 / 26 | 0.6 / 19 | 0 |
+| mbsync | roquette | WAL | 213 | 0 | 0 | 2 / 11 | 0.5 / 3 | 0 |
+| update | beets | WAL | 18 | **1** | 0 | 2 / 5,016 | 0.7 / 5,015 | 0 |
+| update | roquette | WAL | 9 | 0 | 13 | 2 / 9,935 | 0.5 / 3 | 0 |
 
 In every run, all of `beet`'s changes arrived, and no play count was
 lost or counted twice ("lost" compares each item's play count with the
-writes that succeeded).
+writes that succeeded). The script's 99th percentile of the reads is
+left out: with the method it used (`statistics.quantiles`' default),
+it was extrapolated beyond the largest time where a blocked reader had
+few samples (fixed since, `method="inclusive"`).
 
 - **No lost updates**: beets' `store()` writes only the fields that
   changed (`_dirty`), so `beet modify` storing `comments` doesn't touch
@@ -243,14 +356,15 @@ writes that succeeded).
 - **A long transaction (update)** holds the write lock for its whole
   length. With beets' defaults, a write waits the timeout (5 s) and
   fails, and **every read of that `Library` waits with it**: the waiting
-  writer holds beets' lock, so the reader thread stalled for 5.8 s, in
+  writer holds beets' lock, so the reader thread stalled for 5 s, in
   WAL mode too. A UI that waits for its reads would freeze.
 - With **the write strategy** (a `Library` of its own for writes, a
   0.2 s timeout, retries while the lock is free), no write failed: they
   waited for the job (up to 9.9 s) without holding anything up. Reads
   then only wait for SQLite itself: up to 2.5 s in the rollback journal
   (while the job's changes outgrow its page cache, `beet` holds the
-  exclusive lock), not at all in WAL mode (3 ms).
+  exclusive lock), not at all in WAL mode (3 ms). On the desktop, with
+  the larger dev library, such a read reached its 5 s timeout and failed.
 - **beets 2.14 hangs a `Library` when a commit fails.**
   `Transaction.__exit__` commits, and if that raises ("database is
   locked", when another connection is reading for longer than the
@@ -266,7 +380,9 @@ writes that succeeded).
   program use the user's library, and isn't roquette's to switch.
   Documented as an option for users.
 
-### Opening the library read-only
+### Other checks, in the container
+
+#### Opening the library read-only
 
 A `Library` whose connections are opened with SQLite's `mode=ro` URI
 opens a database that is at the installed beets' schema without writing
@@ -278,7 +394,7 @@ through it fails the same way, without hanging (the failure is in the
 statement, not the commit). If the schema is older than the installed
 beets, roquette has to ask the user to run any `beet` command first.
 
-### Plugins
+#### Every plugin beets ships
 
 `just beets-plugins --all` loaded each of the 79 plugins beets 2.14.1
 ships in a process of its own, with the optional dependencies of most
@@ -314,8 +430,8 @@ credentials, `listenbrainz` and `spotify` see below.
   `requests` and MusicBrainz' client: `fetchart` 29, `lyrics` 28,
   `musicbrainz`, `mbpseudo`, `albumtypes` 24, `chroma` 21, `deezer` 22,
   `replaygain` 15, `lastgenre` 11, `mbsync` 13. They share most of it,
-  so what counts is the config's plugins together (the "all of them"
-  row of `just beets-plugins`); to measure on the desktop.
+  so what counts is the config's plugins together: 56 MiB on the
+  desktop (see above).
 - Types are declared by `acousticbrainz`, `deezer`, `lastimport`,
   `lyrics`, `metasync` (Amarok's fields), `mpdstats`, `tidal` and
   `types`. `mpdstats` declares `play_count`, `skip_count` and
@@ -323,7 +439,7 @@ credentials, `listenbrainz` and `spotify` see below.
   and `types` uses the same instances too, so they don't conflict
   (beets compares types by identity and refuses to start otherwise).
 
-### `FMPS_RATING` through the roquette plugin
+#### `FMPS_RATING` through the roquette plugin
 
 The plugin maps the `FMPS_RATING` tag to `fmps_rating` with a
 `mediafile` field under the names Amarok writes (Vorbis comment
@@ -340,7 +456,7 @@ default**, behind `roquette.rating_tag`; M9's one-time import reads the
 tag with the mapping on (or with `mediafile` directly). Written back,
 the value has two decimals ("0.30").
 
-### Settings
+#### Settings
 
 The plugin's defaults (`roquette.library.writable`,
 `roquette.rating_tag`) are part of `beets.config` once the plugin is
@@ -349,7 +465,7 @@ created, and the user's config overrides them as for any plugin
 add them itself when the user's config doesn't load the plugin, before
 reading any setting.
 
-### The `playlist` plugin's M3U files
+#### The `playlist` plugin's M3U files
 
 The `playlist:` query is **broken in beets 2.14.1**: it makes the M3U's
 paths absolute and compares them with the paths beets stores since 2.14,
@@ -364,7 +480,7 @@ fixed. To report upstream. For M13: roquette writes `.m3u` files with
 paths relative to `relative_to` (the music directory by default) so
 that `playlist:` works once fixed, and reads them itself.
 
-### Found along the way
+#### Found along the way
 
 - `just dev-library` copied the `playlist` plugin's playlists, but not
   the `smartplaylist` plugin's: with its `auto` (on by default), every
@@ -376,6 +492,8 @@ that `playlist:` works once fixed, and reads them itself.
 - `Item._types` is computed once, when it's first used: plugins must be
   loaded before anything parses a query or reads a typed flexible
   attribute.
+- `fetchart`, in the dev library's config, didn't load on the desktop
+  (an import error); `beet` itself would warn about it at every command.
 
 ### `just measure`
 
@@ -429,13 +547,23 @@ and arenas grow with them), not S3.
     likewise.
   - *Threads*: one worker thread for reads with its own `Library`, one
     for writes with the write library; no parallel reads. Each keeps its
-    connection for the life of the process.
+    connection for the life of the process. Reads, like writes, are
+    tried again when the database is locked (in the rollback journal,
+    `beet` can hold the exclusive lock for longer than the timeout); a
+    view waits for its rows without blocking the event loop.
   - *Read-only by default*: without `roquette.library.writable`, the
     library is opened with `mode=ro` connections; a database beets would
     migrate is refused with a message to run `beet` first.
-  - *Plugins*: the config's plugins are loaded before anything parses a
-    query or reads a typed field; roquette sends no events of its own
-    (`library_opened`, `cli_exit`).
+  - *Plugins*: roquette loads only the plugins of the config that add
+    something it uses: by default `roquette`, `types`, `inline`,
+    `playlist` and `smartplaylist`, those of them the config enables;
+    `roquette.beets_plugins` names others (for their field types or
+    queries), or a different set. The rest (here 51 MiB and 188 ms)
+    are `beet`'s business. Flexible attributes of plugins that aren't
+    loaded have no type in roquette: queries on them match text. The
+    plugins are loaded before anything parses a query or reads a typed
+    field; roquette sends no events of its own (`library_opened`,
+    `cli_exit`).
 - **The write strategy:** writes go through a `Library` of their own
   (`WriteLibrary`) whose transactions always release beets' lock and
   roll back on errors, with a 0.2 s SQLite timeout; a write that finds
@@ -444,7 +572,8 @@ and arenas grow with them), not S3.
   transaction per change, reading the item and writing its fields in it,
   through beets' `store()` (types and the `database_change` event as for
   any beets write). roquette doesn't change the database's journal mode;
-  WAL is documented as an option for users who want it.
+  WAL is documented as an option for users who run `beet` while
+  roquette plays: with it, reads never wait for `beet`.
 - **`FMPS_RATING`**: the roquette plugin maps the tag only if
   `roquette.rating_tag` is set (off by default), as the mapping turns
   ratings into the files' (or into 0.0) whenever beets reads tags.
@@ -475,30 +604,17 @@ and arenas grow with them), not S3.
   relative paths and not skipping comments; backups of `:memory:`
   databases in the current directory; queries on typed flexible
   attributes evaluated in Python.
-- The plan's budgets stand. The library's index costs about 2.4 MiB at
-  the library's size and 5 MiB at ten times, as columns, against 9 and
-  74 MiB as S1's tuples. The memory of the configured plugins (8–29 MiB
-  each on their own, much of it shared) is part of the idle budget and
-  to be measured on the desktop.
+- The plan's budgets stand. The library's index costs about 2.3 MiB at
+  the dev library's size and 5 MiB at ten times, as columns, against
+  9.6 and 74 MiB as S1's tuples; the plugins roquette loads, 0.3 MiB.
+  Loading all the config's plugins would cost 51–56 MiB and break the
+  idle budget.
+- M4's settings include `roquette.beets_plugins`; M1 loads the plugins
+  as decided.
 - Open issues:
-  - The dev library's figures (see below).
-  - The memory of the config's plugins together, and whether some are
-    worth not loading (a `roquette.plugins` setting) if they're heavy
-    and roquette needs nothing from them.
   - Whether the reader worker should yield between chunks of a long
     query so that a short one (incremental search) isn't kept waiting.
   - `smartplaylist` registers a `cli_exit` listener per changed
     playlist in roquette's process, which is never called; harmless.
-
-## Still to do on the desktop
-
-On the dev copy (`just dev-library` first if it's older than the
-`smartplaylist` fix), each run printing a Markdown summary to add here:
-
-- `just measure-library` (about 5 minutes);
-- `just library-locking` and `just library-locking --wal` (each about
-  2 minutes; they work on a copy in build/locking/);
-- `just beets-plugins` (the config's plugins one by one and together);
-- optionally a real `BEETSDIR=dev/beets beet mbsync` (it needs
-  MusicBrainz) while roquette plays, for the locking behaviour with the
-  real plugin.
+  - The locking runs emulate `mbsync` and `update`; a real `beet mbsync`
+    (which needs MusicBrainz) while roquette writes wasn't run.
