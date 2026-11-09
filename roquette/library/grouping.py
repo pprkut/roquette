@@ -7,7 +7,9 @@ The index's tracks are sorted in the collection's order (album artist,
 release, disc, track), so a release is a run of tracks, and so is each of
 its media. A group is therefore a range of the track list, not a list of
 its own: a few integers per release. Releases are beets albums
-(`album_id`); an album artist's singletons are a group of their own.
+(`album_id`); an album artist's singletons are a group of their own,
+after the artist's releases, whatever their `album` tag (the index's
+order, `roquette.library.index`).
 
 Prototype of S3, which measures it (scripts/measure-library.py).
 """
