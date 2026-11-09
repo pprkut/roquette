@@ -12,6 +12,10 @@ Prototype of S3's write strategy (docs/decisions/0003-library.md):
   beets 2.14's `Transaction.__exit__` leaves its lock taken when the
   commit fails ("database is locked"), and the `Library` then hangs at
   its next query.
+- They take SQLite's write lock when they begin (`BEGIN IMMEDIATE`).
+  Python's `sqlite3` only begins a transaction at the first write, so an
+  item read before it could be changed by another process before
+  roquette writes it back, and that change would be lost.
 - The SQLite timeout is short, and a write that found the database
   locked is tried again later, with the lock released in between, so
   other threads aren't blocked while it waits.
@@ -21,13 +25,27 @@ import sqlite3
 import time
 from collections.abc import Callable, Mapping
 from types import TracebackType
-from typing import Any
+from typing import Any, Self
 
 import beets.library
 from beets.dbcore.db import Transaction
 
 
 class SafeTransaction(Transaction):
+    def __enter__(self) -> Self:
+        with self.db._tx_stack() as stack:
+            root = not stack
+        super().__enter__()
+        if root:
+            try:
+                self.db._connection().execute("BEGIN IMMEDIATE")
+            except BaseException:
+                with self.db._tx_stack() as stack:
+                    stack.pop()
+                self.db._db_lock.release()
+                raise
+        return self
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,

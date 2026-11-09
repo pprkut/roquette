@@ -148,6 +148,54 @@ def test_write_library_releases_its_lock(tmp_path: Path) -> None:
     assert int(stored["play_count"]) == 1
 
 
+def test_write_library_keeps_outside_changes(tmp_path: Path) -> None:
+    """Another process' write between roquette's read of an item and its
+    write waits for roquette's transaction instead of being overwritten."""
+    path, item_id = make_library(tmp_path)
+    library = writes.WriteLibrary(str(path), str(tmp_path))
+    writes.store_fields(library, item_id, lambda item: {"play_count": 1})
+    outside_done = threading.Event()
+
+    def add_ten() -> None:
+        other = sqlite3.connect(path, timeout=5)
+        with other:
+            other.execute(
+                "UPDATE item_attributes SET value = value + 10"
+                " WHERE entity_id = ? AND key = 'play_count'",
+                (item_id,),
+            )
+        other.close()
+        outside_done.set()
+
+    outside = threading.Thread(target=add_ten)
+
+    def add_play(item: beets.library.Item) -> dict[str, int]:
+        outside.start()
+        # Without the write lock, the outside write commits meanwhile.
+        outside_done.wait(0.3)
+        return {"play_count": int(item["play_count"]) + 1}
+
+    writes.store_fields(library, item_id, add_play)
+    outside.join()
+    stored = library.get_item(item_id)
+    assert stored is not None
+    assert int(stored["play_count"]) == 12
+
+
+def test_write_library_releases_its_lock_when_it_cannot_begin(
+    tmp_path: Path,
+) -> None:
+    path, item_id = make_library(tmp_path)
+    library = writes.WriteLibrary(str(path), str(tmp_path), timeout=0.05)
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        writes.store_fields(library, item_id, lambda item: {"play_count": 1})
+    assert not library._db_lock.locked()
+    other.close()
+    writes.store_fields(library, item_id, lambda item: {"play_count": 1})
+
+
 def test_write_retrying(tmp_path: Path) -> None:
     path, item_id = make_library(tmp_path)
     library = writes.WriteLibrary(str(path), str(tmp_path), timeout=0.01)
