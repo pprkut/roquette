@@ -124,12 +124,17 @@ def main() -> int:
     ]:
         if plugin not in plugins:
             continue
-        # Both plugins default to the current directory.
         plugin_config = config.get(plugin) or {}
         config[plugin] = plugin_config
-        source_dir = Path(plugin_config.get("playlist_dir", ".")).expanduser()
-        if not source_dir.is_absolute():
-            source_dir = source_dir.resolve()
+        # beets takes a relative playlist_dir of the config as relative to
+        # the config's directory. Without one, both plugins use the
+        # directory `beet` runs in, which can only be guessed: this one.
+        if "playlist_dir" in plugin_config:
+            source_dir = Path(plugin_config["playlist_dir"]).expanduser()
+            if not source_dir.is_absolute():
+                source_dir = source / source_dir
+        else:
+            source_dir = Path.cwd()
         copy_dir = target / directory
         copy_dir.mkdir()
         if source_dir.is_dir():
