@@ -346,11 +346,23 @@ left out: with the method it used (`statistics.quantiles`' default),
 it was extrapolated beyond the largest time where a blocked reader had
 few samples (fixed since, `method="inclusive"`).
 
-- **No lost updates**: beets' `store()` writes only the fields that
-  changed (`_dirty`), so `beet modify` storing `comments` doesn't touch
-  a `play_count` roquette wrote meanwhile, even though it read its items
-  long before. Only two writers of the same field could lose data, and
-  roquette is the only writer of its fields.
+- **No lost updates in these runs**: beets' `store()` writes only the
+  fields that changed (`_dirty`), so `beet modify` storing `comments`
+  doesn't touch a `play_count` roquette wrote meanwhile, even though it
+  read its items long before. Only two writers of the same field can
+  lose data, and roquette isn't the only writer of its fields:
+  `beet lastimport`, `mpdstats` and the user's `beet modify` write
+  `play_count` too. None of the jobs here did, so these runs couldn't
+  show the next point.
+- **Python's `sqlite3` begins a transaction at the first write**, not
+  when beets' `Transaction` is entered: an item read in a transaction
+  is read outside SQLite's, and another process' change to it until
+  roquette's write is overwritten (found in review: a `play_count` set
+  to 10 meanwhile became roquette's 1 + 1). The write library's
+  transactions therefore begin with `BEGIN IMMEDIATE`, taking the write
+  lock before they read; the other process waits for them, and a write
+  that can't begin is tried again like one that can't commit
+  (`tests/test_library_s3.py`).
 - **Short transactions (modify, mbsync)** are harmless: a write waits
   at most about a second, while `beet modify` commits.
 - **A long transaction (update)** holds the write lock for its whole
@@ -569,7 +581,8 @@ and arenas grow with them), not S3.
   roll back on errors, with a 0.2 s SQLite timeout; a write that finds
   the database locked is tried again with growing pauses (up to 1 s)
   with the lock released, for as long as `beet` keeps it. One
-  transaction per change, reading the item and writing its fields in it,
+  transaction per change, begun with `BEGIN IMMEDIATE`, reading the item
+  and writing its fields in it,
   through beets' `store()` (types and the `database_change` event as for
   any beets write). roquette doesn't change the database's journal mode;
   WAL is documented as an option for users who run `beet` while
