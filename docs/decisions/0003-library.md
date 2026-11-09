@@ -226,7 +226,15 @@ a 364 MiB database; one run):
   the collection's order, a release and a medium are ranges of the track
   list: a `Group` per release holds four integers and its media
   (`roquette/library/grouping.py`). A same-named album and single stay
-  apart (they're grouped by `album_id`).
+  apart (they're grouped by `album_id`). Singletons keep their files'
+  tags (`beet import -s`): the album artist is often empty and `album`
+  set, which neither library here has. Sorted by album artist and album,
+  they split into several groups among the artist's releases, and those
+  without an album artist made one group across artists (found in
+  review). The index now sorts singletons by their album artist, or
+  their artist without one, after the artist's releases, by title, and
+  ignores their `album`; the order of the dev library is unchanged, and
+  so is the time.
 - **Load and group the whole library**: 164 ms on the worker, 9.5 MiB,
   of which S1's index is 45 ms. The rest is the index's second query
   (releases) and the versions.

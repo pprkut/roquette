@@ -93,6 +93,37 @@ def test_grouping_of_the_index(tmp_path: Path) -> None:
     assert sorted(g.stop - g.start for g in groups) == [1, 3]
 
 
+def test_grouping_of_singletons(tmp_path: Path) -> None:
+    """Singletons as `beet import -s` leaves them: with the files' album
+    tags, and without an album artist."""
+    library = beets.library.Library(str(tmp_path / "library.db"), str(tmp_path))
+    for album in ["Beta", "Zed"]:
+        library.add_album(
+            [
+                item(tmp_path, f"{album}{n}", album=album, albumartist="A")
+                for n in (1, 2)
+            ]
+        )
+    for name, album, artist in [
+        ("s1", "Middle", "A"),
+        ("s2", "Alpha", "A"),
+        ("s3", "Alpha", "B"),
+        ("s4", "", "B"),
+    ]:
+        library.add(item(tmp_path, name, album=album, artist=artist, albumartist=""))
+    tracks = load_index(library).tracks
+    groups = grouping.group(tracks)
+    assert [
+        (g.albumartist, sorted(t.title for t in tracks[g.start : g.stop]))
+        for g in groups
+    ] == [
+        ("A", ["Beta1", "Beta2"]),
+        ("A", ["Zed1", "Zed2"]),
+        ("A", ["s1", "s2"]),
+        ("B", ["s3", "s4"]),
+    ]
+
+
 def make_library(tmp_path: Path) -> tuple[Path, int]:
     path = tmp_path / "library.db"
     library = beets.library.Library(str(path), str(tmp_path))
