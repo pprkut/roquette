@@ -46,7 +46,7 @@ roquette = "roquette.__main__:main"
 # locally they are system packages.
 [dependency-groups]
 test = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-cov==7.1.0",
 ]
 lint = [
