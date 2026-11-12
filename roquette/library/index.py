@@ -31,6 +31,7 @@ class Track(NamedTuple):
     title: str
     artist: str
     album: str
+    # A singleton's artist when it has no album artist.
     albumartist: str
     length: float
 
@@ -60,10 +61,22 @@ def open_library() -> beets.library.Library:
 # collection's order.
 _ALBUMARTIST_SORT = "COALESCE(NULLIF(albumartist_sort, ''), albumartist) COLLATE NOCASE"
 
+# Singletons keep the tags of their files: their album artist may be
+# empty (then the artist counts) and their `album` set. They come after
+# the artist's releases, by title, whatever their `album`.
+_SINGLETON = "IFNULL(album_id, 0) = 0"
+_ARTIST = f"""CASE WHEN {_SINGLETON} AND IFNULL(albumartist, '') = ''
+    THEN artist ELSE albumartist END"""
+_ARTIST_SORT = f"""CASE WHEN {_SINGLETON} AND IFNULL(albumartist, '') = ''
+    THEN COALESCE(NULLIF(artist_sort, ''), artist)
+    ELSE COALESCE(NULLIF(albumartist_sort, ''), albumartist) END COLLATE NOCASE"""
+
 _TRACKS = f"""
-    SELECT id, album_id, disc, track, title, artist, album, albumartist, length
+    SELECT id, album_id, disc, track, title, artist, album, {_ARTIST}, length
     FROM items
-    ORDER BY {_ALBUMARTIST_SORT}, album COLLATE NOCASE, album_id, disc, track
+    ORDER BY {_ARTIST_SORT}, {_ARTIST}, {_SINGLETON},
+        CASE WHEN {_SINGLETON} THEN '' ELSE album END COLLATE NOCASE,
+        album_id, disc, track, title COLLATE NOCASE
 """
 
 _RELEASES = f"""
