@@ -9,9 +9,7 @@ for the Slint component.
 """
 
 import asyncio
-import threading
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +17,7 @@ from typing import Any, cast
 
 import pytest
 
-from roquette.library.index import Playable, Track
+from roquette.library.index import Playable, TrackText
 from roquette.measure import Stopwatch
 from roquette.playback.gain import ReplayGain
 from roquette.playback.source import Source
@@ -48,20 +46,23 @@ class FakeEngine:
         self.played.append([source.path for source in sources])
 
 
-def track(id: int) -> Track:
-    return Track(id, 0, 1, 1, f"Track {id}", "Artist", "", "Artist", 60.0)
+class FakeLibrary:
+    """The library service's `playables`; the look-up of track 1 is slow."""
+
+    def __init__(self) -> None:
+        self.slow = asyncio.Event()
+
+    async def playables(self, ids: Sequence[int]) -> list[Playable]:
+        if list(ids) == [1]:
+            await self.slow.wait()
+        text = TrackText("Track", "Artist", "", "Artist", 1, 1, 60.0)
+        return [
+            Playable(i, 0, Path(f"{i}.flac"), 60.0, ReplayGain(), text) for i in ids
+        ]
 
 
-def test_the_latest_play_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_latest_play_wins() -> None:
     """A look-up that finishes after a later one's doesn't play."""
-    slow = threading.Event()
-
-    def load_playables(library: Any, ids: Sequence[int]) -> list[Playable]:
-        if ids == [1]:
-            slow.wait(5)
-        return [Playable(i, 0, Path(f"{i}.flac"), 60.0, ReplayGain()) for i in ids]
-
-    monkeypatch.setattr(ui, "load_playables", load_playables)
     compiled = SimpleNamespace(
         MainWindow=lambda: SimpleNamespace(volume=80.0),
         PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
@@ -72,17 +73,16 @@ def test_the_latest_play_wins(monkeypatch: pytest.MonkeyPatch) -> None:
         loop = asyncio.get_running_loop()
         inbox = Inbox(loop)
         window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
-        with ThreadPoolExecutor(2) as pool:
-            window.engine = cast(Any, engine)
-            window.library = cast(Any, object())
-            window.worker = pool
-            window.play([track(1)])
-            window.play([track(2)])
-            while not engine.played:
-                await asyncio.sleep(0.01)
-            slow.set()
-            # Time for the first look-up to come back, too.
-            await asyncio.sleep(0.2)
+        library = FakeLibrary()
+        window.engine = cast(Any, engine)
+        window.library = cast(Any, library)
+        window.play([1])
+        window.play([2])
+        while not engine.played:
+            await asyncio.sleep(0.01)
+        library.slow.set()
+        # Time for the first look-up to come back, too.
+        await asyncio.sleep(0.1)
         inbox.close()
 
     asyncio.run(main())

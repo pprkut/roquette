@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
+# SPDX-License-Identifier: MIT
+
+"""The text of the rows on screen, read by id when a view asks for it.
+
+The index holds numbers only (docs/decisions/0003-library.md); a view
+asks for the text of each row it shows. The reader worker is never
+waited for on the event loop: a row without its text yet is shown
+empty, the ids asked for in one turn of the event loop are read
+together, and the view is told which ids arrived so it updates those
+rows. Text is kept for the most recently asked-for ids only, a few
+screens' worth.
+"""
+
+import asyncio
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable, Iterable
+
+type Load[T] = Callable[[list[int]], Awaitable[dict[int, T]]]
+
+
+class RowText[T]:
+    def __init__(
+        self,
+        load: Load[T],
+        loaded: Callable[[list[int]], None],
+        limit: int = 2048,
+    ) -> None:
+        self._load = load
+        self._loaded = loaded
+        self._limit = limit
+        self._text: OrderedDict[int, T] = OrderedDict()
+        self._wanted: set[int] = set()
+        self._loading: set[int] = set()
+        self._flush: asyncio.Handle | None = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        # Text read before a `clear()` is dropped when it arrives.
+        self._generation = 0
+        # How many reads, for the measurements.
+        self.reads = 0
+
+    def __len__(self) -> int:
+        return len(self._text)
+
+    def get(self, item_id: int) -> T | None:
+        """The text, or None while it's read."""
+        text = self._text.get(item_id)
+        if text is not None:
+            self._text.move_to_end(item_id)
+            return text
+        if item_id not in self._loading:
+            self._wanted.add(item_id)
+            if self._flush is None:
+                self._flush = asyncio.get_running_loop().call_soon(self._read)
+        return None
+
+    def clear(self) -> None:
+        """Forget all text (the library changed)."""
+        self._generation += 1
+        self._text.clear()
+        self._wanted.clear()
+        self._loading.clear()
+
+    def close(self) -> None:
+        self.clear()
+        if self._flush is not None:
+            self._flush.cancel()
+            self._flush = None
+        for task in self._tasks:
+            task.cancel()
+
+    def _read(self) -> None:
+        self._flush = None
+        if not self._wanted:
+            return
+        ids = sorted(self._wanted)
+        self._wanted.clear()
+        self._loading.update(ids)
+        task = asyncio.get_running_loop().create_task(
+            self._read_ids(ids, self._generation)
+        )
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _read_ids(self, ids: list[int], generation: int) -> None:
+        self.reads += 1
+        try:
+            found = await self._load(ids)
+        finally:
+            if generation == self._generation:
+                self._loading.difference_update(ids)
+        if generation != self._generation:
+            return
+        self._store(found.items())
+        self._loaded(ids)
+
+    def _store(self, found: Iterable[tuple[int, T]]) -> None:
+        for item_id, text in found:
+            self._text[item_id] = text
+        while len(self._text) > self._limit:
+            self._text.popitem(last=False)

@@ -7,9 +7,8 @@ Tracks are versions of one recording when they share `mb_trackid`
 (docs/PLAN.md, "Recording versions"). Only recordings with more than one
 version are indexed, about 1,000 of the dev library's 11,800 tracks; the
 rest are their own group and cost nothing. The index maps each of those
-tracks to the ids of all versions, best first.
-
-Prototype of S3, which measures it (scripts/measure-library.py).
+tracks to the ids of all versions, best first: 33 ms and 0.1 MiB for the
+dev library (docs/decisions/0003-library.md).
 """
 
 from collections.abc import Iterable

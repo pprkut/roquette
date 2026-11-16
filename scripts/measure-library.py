@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -106,9 +106,9 @@ def open_library() -> Any:
     import beets.library
     from beets import config, plugins
 
-    from roquette.app import check_library_copy
+    from roquette.library.config import check_development_copy
 
-    check_library_copy()
+    check_development_copy()
     plugins.load_plugins()
     # The plugins' field types, as `beet` registers them.
     _ = beets.library.Item._types, beets.library.Album._types
@@ -123,9 +123,9 @@ def scenario_open() -> dict[str, Any]:
     import beets.library
     from beets import config, plugins
 
-    from roquette.app import check_library_copy
+    from roquette.library.config import check_development_copy
 
-    check_library_copy()
+    check_development_copy()
     imported = time.perf_counter()
     after_import = memory()["VmRSS"]
     plugins.load_plugins()
@@ -171,16 +171,28 @@ def scenario_albums() -> dict[str, Any]:
     return {"count": len(albums), **work.as_dict()}
 
 
-def scenario_items_iter() -> dict[str, Any]:
-    """The compact index's tracks through beets' API: every Item is made
-    and dropped again."""
-    library = open_library()
-    from roquette.library.index import Track
+class S1Track(NamedTuple):
+    """S1's index entry: the text a view shows, per track."""
 
+    id: int
+    album_id: int
+    disc: int
+    track: int
+    title: str
+    artist: str
+    album: str
+    albumartist: str
+    length: float
+
+
+def scenario_items_iter() -> dict[str, Any]:
+    """S1's index through beets' API: every Item is made and dropped
+    again."""
+    library = open_library()
     intern = sys.intern
     with measured() as work:
         tracks = [
-            Track(
+            S1Track(
                 item.id,
                 item.album_id or 0,
                 item.disc,
@@ -197,7 +209,8 @@ def scenario_items_iter() -> dict[str, Any]:
 
 
 def scenario_index() -> dict[str, Any]:
-    """S1's compact index: one narrow query per table."""
+    """M1's index: columns of numbers and the album artists, one narrow
+    query per table."""
     library = open_library()
     from roquette.library.index import load_index
 
@@ -228,7 +241,7 @@ def scenario_index_full() -> dict[str, Any]:
     result["tracks with versions"] = len(versions)
     result["recordings with versions"] = len({id(v) for v in versions.values()})
     result["groups"] = len(groups)
-    result["singleton groups"] = sum(1 for g in groups if not g.album_id)
+    result["singleton groups"] = sum(1 for a in groups.album_ids if not a)
     return {**result, **total.as_dict()}
 
 
@@ -311,23 +324,11 @@ def median_ms(function: Callable[[], object], runs: int = 3) -> float:
 
 
 def matching_ids(library: Any, query_string: str) -> list[int]:
-    """The ids of the items a query matches, without making Items where
-    beets can run the query in SQL."""
-    import beets.library
+    """The ids of the items a query matches, as M1's library layer gets
+    them (in the collection's order)."""
+    from roquette.library.query import query_ids
 
-    model = beets.library.Item
-    with library.music_dir_context():
-        query, _ = beets.library.parse_query_string(query_string, model)
-    where, subvals = query.clause()
-    if where is None:
-        # A slow query: beets matches every Item in Python.
-        return [item.id for item in library.items(query)]
-    source = model._table
-    if query.field_names & model.other_db_fields:
-        source += f" {model.relation_join}"
-    sql = f"SELECT items.id FROM {source} WHERE {where} GROUP BY items.id"
-    with library.transaction() as tx:
-        return [row[0] for row in tx.query(sql, subvals)]
+    return query_ids(library, query_string).tolist()
 
 
 # Flexible attributes as SQL instead of Python: what a query class from
@@ -500,8 +501,8 @@ def summary(results: dict[str, dict[str, Any]]) -> str:
         for key, name in [
             ("items", "all Items (`list(lib.items())`)"),
             ("albums", "all Albums (`list(lib.albums())`)"),
-            ("items-iter", "index through Items (made and dropped)"),
-            ("index", "index, narrow SQL (S1)"),
+            ("items-iter", "S1's index through Items (made and dropped)"),
+            ("index", "M1's index (columns, album artists)"),
             ("index-full", "index + versions + grouping"),
             ("columns", "index as columns of numbers"),
         ]
@@ -528,7 +529,9 @@ def summary(results: dict[str, dict[str, Any]]) -> str:
         out.append("\nIndex, versions and grouping:\n")
         out.append(table([results["index-full"]]))
     if "queries" in results:
-        out.append("\nQueries (ms; Items: `list(lib.items(q))`, ids: matching ids):\n")
+        out.append(
+            "\nQueries (ms; Items: `list(lib.items(q))`, ids: roquette's query_ids):\n"
+        )
         out.append(table(results["queries"]["rows"]))
     if "connections" in results:
         out.append("\nConnections:\n")

@@ -89,3 +89,16 @@ def load_plugins() -> list[str]:
     # Field types and queries computed before (in tests) are stale.
     cached_classproperty.cache.clear()
     return [plugin.name for plugin in plugins.find_plugins()]
+
+
+def check_development_copy() -> None:
+    """Refuse a config that isn't a development copy (`just dev-library`,
+    `just fake-library`): for the scripts that open the library with
+    beets' own `Library`, which updates it to the installed beets, or
+    write to it."""
+    writable = config["roquette"]["library"]["writable"]
+    if not (writable.exists() and writable.get(bool)):
+        raise LibraryError(
+            f"{config.config_dir()} isn't a development copy of the beets data; "
+            "run with BEETSDIR=dev/beets (`just dev-library`)"
+        )

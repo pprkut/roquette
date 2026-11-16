@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
+from pathlib import Path
+
 import pytest
 
 from roquette import __version__
@@ -16,6 +18,7 @@ def test_version(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_defaults() -> None:
     args = parse_args([])
+    assert args.beets_config is None
     assert args.module == "tracks"
     assert args.scale == 1
     assert args.autoscroll is None
@@ -25,6 +28,10 @@ def test_defaults() -> None:
     assert args.replaygain == "auto"
     assert args.replaygain_source == "beets"
     assert args.preamp == 0.0
+
+
+def test_beets_config() -> None:
+    assert parse_args(["--beets-config", "x.yaml"]).beets_config == Path("x.yaml")
 
 
 def test_playback() -> None:

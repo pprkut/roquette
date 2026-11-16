@@ -141,6 +141,7 @@ def build_library(path: Path, music: Path) -> Library:
                 "album": release.album,
                 "albumartist": release.albumartist,
                 "albumartist_sort": release.albumartist_sort,
+                "artist_sort": release.albumartist_sort,
                 "year": release.year,
                 "albumtype": release.albumtype,
                 "comp": release.comp,
