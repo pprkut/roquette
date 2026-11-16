@@ -564,12 +564,12 @@ and arenas grow with them), not S3.
     what is shown in detail or changed, never for the whole library.
   - *Flexible attributes get SQL queries*: the roquette plugin provides
     query classes for its fields (`item_queries`) that run on
-    `item_attributes` in SQL, keeping beets' meaning (an item without
-    the field has the type's null value, so `play_count:..0` finds the
-    unplayed). Queries beets can only run in Python (other plugins'
-    flexible attributes) run on the reader worker in chunks of ids, so
-    their Items never all exist at once; sorting by a flexible attribute
-    likewise.
+    `item_attributes` in SQL, keeping beets' meaning (corrected in M1:
+    an item without the field matches no range, so the unplayed are
+    `^play_count:1..`, not `play_count:..0`). Queries beets can only
+    run in Python (other plugins' flexible attributes) run on the
+    reader worker in chunks of ids, so their Items never all exist at
+    once; sorting by a flexible attribute likewise.
   - *Threads*: one worker thread for reads with its own `Library`, one
     for writes with the write library; no parallel reads. Each keeps its
     connection for the life of the process. Reads, like writes, are

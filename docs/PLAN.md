@@ -454,12 +454,14 @@ then S2, the riskiest functionally, then S3.
 
 From here on every milestone ships with tests.
 
-- **M1 — Library layer.** Config discovery (`BEETSDIR`, `--beets-config`,
-  default), the read-only guard (`mode=ro` connections), the plugins
-  roquette loads, queries with sort (as ids from SQL, with the roquette
-  plugin's SQL queries for its flexible fields), the release/medium/track
-  grouping (releases by `album_id`, singletons in their own group, artist
-  sort names) over a columnar index, the recording index with version
+- **M1 — Library layer.** *(done: `roquette/library/`, as
+  `docs/decisions/0003-library.md` decided; the views read their text by
+  id)* Config discovery (`BEETSDIR`, `--beets-config`, default), the
+  read-only guard (`mode=ro` connections), the plugins roquette loads,
+  queries with sort (as ids from SQL, with the roquette plugin's SQL
+  queries for its flexible fields), the release/medium/track grouping
+  (releases by `album_id`, singletons in their own group, artist sort
+  names) over a columnar index, the recording index with version
   ranking, incremental search, the reader and writer workers with the
   write path of S3, a file watch on the database for outside changes.
 - **M2 — Playback engine.** Hardened S2: state machine, gapless, ReplayGain
