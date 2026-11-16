@@ -47,3 +47,8 @@ UI, GStreamer playback).
   packages, the beets plugin and its config section, paths and ids
   (see "Conventions" in the plan).
 - Licence: MIT with REUSE headers; see "Licensing" in the plan.
+- Commit messages and pull request descriptions must not contain links to
+  Claude Code sessions (no `Claude-Session:` trailer, no
+  `https://claude.ai/code/session_…` URLs): the repository is public and
+  the links are useless to anyone else. The `Co-Authored-By:` trailer
+  stays.
