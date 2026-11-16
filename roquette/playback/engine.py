@@ -75,7 +75,7 @@ class Engine:
         preamp: float = 0.0,
         fallback: float = 0.0,
     ) -> None:
-        Gst.init(None)
+        Gst.init([])
         self.preamp = preamp
         self.fallback = fallback
         self.on_started: Callable[[int, Source], None] | None = None

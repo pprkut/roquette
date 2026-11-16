@@ -119,7 +119,7 @@ def make_audio(directory: Path, suffix: str) -> Path:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         encoder = {
             ".flac": "flacenc",
             ".mp3": "lamemp3enc ! id3v2mux",
