@@ -148,7 +148,12 @@ are left out, see "Writing while `beet` writes"):
 | update | roquette | WAL | 9 | 0 | 13 | 2 / 9,906 | 0.6 / 2 | 0 | 0 |
 
 All of `beet`'s changes arrived and no play count was lost, in every
-run. What the desktop adds to the container's results:
+run. Run again after the write library's transactions began with
+`BEGIN IMMEDIATE` (see "Writing while `beet` writes"; 2026-11-16, both
+journals): the same picture, no failed writes or reads with the write
+strategy, no `beet` job failed or waited longer for roquette's lock;
+the longest read in the rollback journal was 4.9 s, just under the
+timeout. What the desktop adds to the container's results:
 
 - **The plugins are the largest item.** 51–56 MiB for the config's
   plugins is a quarter of the idle budget (225 MiB RSS), and S1's and
