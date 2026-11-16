@@ -22,6 +22,30 @@ Roquette is being restarted. It plays a release, gapless and with
 ReplayGain, when you double-click it, and not much more yet. The roadmap is in
 `docs/PLAN.md <docs/PLAN.md>`_.
 
+Your beets library
+------------------
+
+Roquette finds the beets config as ``beet`` does (``$BEETSDIR``, or beets'
+default directory); ``--beets-config FILE`` reads a file over it, like
+``beet -c``. It reads the library through read-only connections and doesn't
+write to it unless the config says so::
+
+    roquette:
+      library:
+        writable: yes
+
+Of the config's plugins, Roquette loads only those listed in
+``roquette.beets_plugins`` (by default ``roquette``, ``types``, ``inline``,
+``playlist`` and ``smartplaylist``) that the config enables; the rest are
+``beet``'s business. Add ``roquette`` to ``plugins:`` (with the checkout's
+``beetsplug/`` in ``pluginpath:``): it declares the types of the ratings and
+play statistics Roquette keeps in beets, so that ``beet ls play_count:10..``
+works, and runs queries on them in SQL. If ``beet`` often writes to the library
+while Roquette plays, switching the database to SQLite's WAL journal
+(``sqlite3 library.db 'PRAGMA journal_mode=WAL'``) keeps Roquette's reads from
+waiting for it; that changes the file for every program using it, so it's your
+choice, not Roquette's.
+
 Development
 -----------
 
