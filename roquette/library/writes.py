@@ -32,13 +32,16 @@ from beets.dbcore.db import Transaction
 
 
 class SafeTransaction(Transaction):
+    # Takes the write lock before the transaction reads.
+    begin = "BEGIN IMMEDIATE"
+
     def __enter__(self) -> Self:
         with self.db._tx_stack() as stack:
             root = not stack
         super().__enter__()
         if root:
             try:
-                self.db._connection().execute("BEGIN IMMEDIATE")
+                self.db._connection().execute(self.begin)
             except BaseException:
                 with self.db._tx_stack() as stack:
                     stack.pop()

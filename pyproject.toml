@@ -26,6 +26,9 @@ classifiers = [
 # deptry can check it.
 dependencies = [
     "beets>=2.14",
+    # beets' config layer, whose errors roquette reports; beets needs
+    # 2.2 too.
+    "confuse>=2.2",
     # The FMPS_RATING tag as a field of the beets plugin; beets uses it
     # for all tags.
     "mediafile>=0.17",
