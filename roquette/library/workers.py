@@ -9,8 +9,9 @@ parallel are much slower than one after the other (S3). So all reads
 run on one worker thread with the read-only library, all writes on
 another with the write library, each keeping its connection for the
 life of the process. Jobs run one after the other, and are tried
-again while the database is locked (`writes.retrying`). The event loop
-awaits them without blocking: results come back through the inbox.
+again while the database is locked (`writes.retrying`), until the job
+is no longer wanted or the worker closes. The event loop awaits them
+without blocking: results come back through the inbox.
 """
 
 from collections.abc import Callable
@@ -27,6 +28,7 @@ class Worker[L: beets.library.Library]:
         self._inbox = inbox
         self._executor = ThreadPoolExecutor(1, thread_name_prefix=f"roquette {name}")
         self._library: L | None = None
+        self._closed = False
 
     @property
     def library(self) -> L | None:
@@ -42,14 +44,17 @@ class Worker[L: beets.library.Library]:
 
         return await self._inbox.run(self._executor, opened)
 
-    async def run[T](self, job: Callable[[L], T]) -> T:
-        """`job` with the worker's library, on its thread."""
+    async def run[T](
+        self, job: Callable[[L], T], stop: Callable[[], bool] = lambda: False
+    ) -> T:
+        """`job` with the worker's library, on its thread; while the
+        database is locked, until `stop` returns true."""
 
         def call() -> T:
             library = self._library
             if library is None:
                 raise RuntimeError("the worker's library isn't open")
-            return retrying(lambda: job(library))
+            return retrying(lambda: job(library), stop=lambda: self._closed or stop())
 
         return await self._inbox.run(self._executor, call)
 
@@ -58,5 +63,7 @@ class Worker[L: beets.library.Library]:
         return await self._inbox.run(self._executor, job)
 
     def close(self) -> None:
-        """Stop the thread after its current job; queued ones are dropped."""
+        """Stop the thread after its current job, which stops waiting for
+        a locked database; queued ones are dropped."""
+        self._closed = True
         self._executor.shutdown(wait=False, cancel_futures=True)

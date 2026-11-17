@@ -20,6 +20,7 @@ replaced the database, the reader and the writer connect again.
 """
 
 import asyncio
+import sqlite3
 from array import array
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -39,7 +40,7 @@ from roquette.library.index import (
     release_text,
     track_text,
 )
-from roquette.library.query import Query, parse, query_ids
+from roquette.library.query import Query, Stopped, parse, query_ids
 from roquette.library.watch import DatabaseWatch
 from roquette.library.workers import Worker
 from roquette.library.writes import WriteLibrary, store_fields
@@ -143,7 +144,15 @@ class LibraryService:
     ) -> array[int]:
         """The ids of the tracks the query finds, in its order; raises
         `QueryError` for one beets can't parse, `Stopped` if `stop` said so."""
-        return await self._reader.run(lambda library: query_ids(library, query, stop))
+        try:
+            return await self._reader.run(
+                lambda library: query_ids(library, query, stop), stop
+            )
+        except sqlite3.OperationalError:
+            # Stopped while the database was locked.
+            if stop():
+                raise Stopped from None
+            raise
 
     async def track_text(self, ids: Iterable[int]) -> dict[int, TrackText]:
         wanted = list(ids)

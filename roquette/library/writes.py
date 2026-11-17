@@ -98,14 +98,15 @@ def retrying[T](
     give_up_after: float = 300,
     sleep: Callable[[float], None] = time.sleep,
     retried: Callable[[], None] = lambda: None,
+    stop: Callable[[], bool] = lambda: False,
 ) -> T:
     """Run `job` (one transaction) until the database isn't locked.
 
     Between tries, it waits with growing pauses (up to 1 s), with beets'
     lock released, and calls `retried`. Raises the last error when the
-    database stayed locked for `give_up_after` seconds. For reads too:
-    in the rollback journal, `beet` can hold the exclusive lock for
-    longer than SQLite's timeout.
+    database stayed locked for `give_up_after` seconds, or as soon as
+    `stop` returns true. For reads too: in the rollback journal, `beet`
+    can hold the exclusive lock for longer than SQLite's timeout.
     """
     start = time.monotonic()
     delay = 0.01
@@ -113,7 +114,11 @@ def retrying[T](
         try:
             return job()
         except sqlite3.OperationalError as error:
-            if not is_locked(error) or time.monotonic() - start > give_up_after:
+            if (
+                not is_locked(error)
+                or time.monotonic() - start > give_up_after
+                or stop()
+            ):
                 raise
             retried()
             sleep(delay)

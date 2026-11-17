@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import beets.library
+import pytest
 
 from roquette.library.watch import DatabaseWatch
 from roquette.library.workers import Worker
@@ -78,6 +79,36 @@ def test_worker_retries_while_locked(tmp_path: Path) -> None:
             worker.close()
 
     assert run(main) >= 0.25
+
+
+def test_worker_stops_retrying() -> None:
+    """A job waiting for a locked database ends when it's no longer
+    wanted, and when the worker closes."""
+    tries: list[float] = []
+
+    def locked(library: object) -> None:
+        tries.append(time.monotonic())
+        raise sqlite3.OperationalError("database is locked")
+
+    async def main(inbox: Inbox) -> None:
+        worker: Worker[beets.library.Library] = Worker("reader", inbox)
+        worker._library = object()  # type: ignore[assignment]
+        stop = False
+        job = asyncio.ensure_future(worker.run(locked, lambda: stop))
+        await asyncio.sleep(0.1)
+        stop = True
+        with pytest.raises(sqlite3.OperationalError):
+            await asyncio.wait_for(job, 2)
+        job = asyncio.ensure_future(worker.run(locked))
+        await asyncio.sleep(0.1)
+        worker.close()
+        with pytest.raises(sqlite3.OperationalError):
+            await asyncio.wait_for(job, 2)
+
+    start = time.monotonic()
+    run(main)
+    assert time.monotonic() - start < 3
+    assert len(tries) > 2
 
 
 # The watch
