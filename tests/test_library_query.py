@@ -111,6 +111,25 @@ def test_sort(library: Library, reader: ReadLibrary) -> None:
     assert not parse(reader, "pink").sorted
 
 
+def test_sort_with_a_join(library: Library, reader: ReadLibrary) -> None:
+    """Fields of both tables sort by the items' in a join."""
+    query = parse(reader, "artpath::Wall year+ artist- album+")
+    assert query.joins_albums
+    assert query.slow_sort is None
+    found = list(query_ids(reader, query))
+    with reader.music_dir_context():
+        assert found == [item.id for item in reader.items(query.text)]
+    # A sort by an album's field, with and without one in the query
+    # (beets' own query has the same ambiguity).
+    for text in ("artpath::Wall", "pink"):
+        query = parse(reader, f"{text} artpath- year+ id+")
+        assert query.sorts_by_albums
+        with reader.music_dir_context():
+            items = sorted(reader.items(text), key=lambda item: (item.year, item.id))
+            items.sort(key=lambda item: item.get("artpath") or b"", reverse=True)
+        assert list(query_ids(reader, query)) == [item.id for item in items]
+
+
 def test_sort_by_artist_uses_the_sort_name(
     library: Library, reader: ReadLibrary
 ) -> None:

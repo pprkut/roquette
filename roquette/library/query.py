@@ -35,6 +35,13 @@ Item = beets.library.Item
 # Items made at once for what has to be matched or sorted in Python.
 SLOW_CHUNK = 500
 
+# The fields only albums have, as the albums' table.
+_ALBUM_FIELDS = (
+    "LEFT JOIN (SELECT id AS roquette_album_id, "
+    + ", ".join(sorted(Item.other_db_fields))
+    + " FROM albums) AS albums ON albums.roquette_album_id = items.album_id"
+)
+
 
 class QueryError(Exception):
     """A query beets can't parse; the message is for the user."""
@@ -58,7 +65,9 @@ class Query:
     slow_sort: list[dbsort.FieldSort] | None
     # Whether the query has a sort of its own.
     sorted: bool
+    # Whether the query and its order use fields of albums.
     joins_albums: bool
+    sorts_by_albums: bool
 
 
 def parse(library: beets.library.Library, text: str) -> Query:
@@ -71,9 +80,6 @@ def parse(library: beets.library.Library, text: str) -> Query:
         raise QueryError(str(error)) from error
     where, subvals, slow = _split(parsed)
     order, order_subvals, slow_sort = _order(sort)
-    field_names = parsed.field_names
-    if slow_sort is None:
-        field_names = field_names | sort.field_names
     return Query(
         text,
         where or "1",
@@ -83,7 +89,8 @@ def parse(library: beets.library.Library, text: str) -> Query:
         tuple(order_subvals),
         slow_sort,
         not isinstance(sort, dbsort.NullSort),
-        bool(field_names & Item.other_db_fields),
+        bool(parsed.field_names & Item.other_db_fields),
+        slow_sort is None and bool(sort.field_names & Item.other_db_fields),
     )
 
 
@@ -97,16 +104,21 @@ def query_ids(
     query raises `Stopped` when it returns true."""
     if isinstance(query, str):
         query = parse(library, query)
-    join = f" {Item.relation_join}" if query.joins_albums else ""
-    if join:
-        # Fields of both tables are ambiguous in a join; the query is a
-        # subquery, as in beets.
+    if query.joins_albums:
+        # Fields of both tables are ambiguous in a join, as beets'
+        # clauses don't name the items' table: the join is a subquery,
+        # as in beets.
         sql = (
-            f"SELECT items.id FROM items{join} WHERE items.id IN"
-            f" (SELECT items.id FROM items{join} WHERE {query.where})"
+            "SELECT items.id FROM items WHERE items.id IN"
+            f" (SELECT items.id FROM items {Item.relation_join}"
+            f" WHERE {query.where})"
         )
     else:
         sql = f"SELECT items.id FROM items WHERE {query.where}"
+    if query.sorts_by_albums:
+        # beets names the albums' table in a sort by their fields: they
+        # are joined without the fields items have too.
+        sql = sql.replace("FROM items", f"FROM items {_ALBUM_FIELDS}", 1)
     order = query.order if query.slow_sort is None else COLLECTION_ORDER
     sql += f" ORDER BY {order}"
     subvals = query.subvals + (query.order_subvals if query.slow_sort is None else ())
