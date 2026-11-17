@@ -75,4 +75,6 @@ class Search[T]:
                 if self.text == text:
                     self._found(text, result)
         finally:
-            self._task = None
+            # A task cancelled ends after the next one may have started.
+            if self._task is asyncio.current_task():
+                self._task = None

@@ -116,6 +116,41 @@ def test_search_reports_invalid_queries() -> None:
     assert found == ["year:1975"]
 
 
+def test_search_after_cancel() -> None:
+    """A search started as the cancelled one ends runs alone."""
+    running: list[str] = []
+    overlapped: list[set[str]] = []
+
+    async def main(inbox: Inbox) -> None:
+        release = asyncio.Event()
+
+        async def query(text: str, stop: Callable[[], bool]) -> str:
+            running.append(text)
+            if len(running) > 1:
+                overlapped.append(set(running))
+            try:
+                await release.wait()
+            finally:
+                running.remove(text)
+            return text
+
+        search = Search(query, lambda text, result: None)
+        search.set_text("a")
+        await asyncio.sleep(0)
+        search.cancel()
+        search.set_text("b")
+        # The cancelled query ends.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        search.set_text("bc")
+        await asyncio.sleep(0)
+        release.set()
+        await search.wait()
+
+    run(main)
+    assert overlapped == []
+
+
 # The service
 
 
