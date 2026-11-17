@@ -38,12 +38,13 @@ def test_worker_runs_jobs_on_its_thread(tmp_path: Path) -> None:
     async def main(inbox: Inbox) -> tuple[set[str], int]:
         worker: Worker[beets.library.Library] = Worker("reader", inbox)
         try:
-            await worker.start(lambda: beets.library.Library(str(path), str(tmp_path)))
+            library = await worker.start(
+                lambda: beets.library.Library(str(path), str(tmp_path))
+            )
             names = set()
             for _ in range(3):
                 names.add(await worker.run(lambda _: threading.current_thread().name))
-            assert worker.library is not None
-            return names, len(worker.library._connections)
+            return names, len(library._connections)
         finally:
             worker.close()
 

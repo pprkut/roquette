@@ -30,10 +30,6 @@ class Worker[L: beets.library.Library]:
         self._library: L | None = None
         self._closed = False
 
-    @property
-    def library(self) -> L | None:
-        return self._library
-
     async def start(self, open_library: Callable[[], L]) -> L:
         """Open the worker's library on its thread, where the connection
         made while opening it stays."""
@@ -57,10 +53,6 @@ class Worker[L: beets.library.Library]:
             return retrying(lambda: job(library), stop=lambda: self._closed or stop())
 
         return await self._inbox.run(self._executor, call)
-
-    async def call[T](self, job: Callable[[], T]) -> T:
-        """`job` on the worker's thread, without the library."""
-        return await self._inbox.run(self._executor, job)
 
     def close(self) -> None:
         """Stop the thread after its current job, which stops waiting for
