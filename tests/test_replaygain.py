@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from roquette.library.index import Playable
+from roquette.library.index import Playable, TrackText
 from roquette.playback.gain import Mode, ReplayGain
 from roquette.queue.replaygain import auto_modes, make_sources
 
@@ -19,7 +19,8 @@ def test_auto_modes() -> None:
 
 
 def playable(n: int, album_id: int) -> Playable:
-    return Playable(n, album_id, Path(f"/m/{n}.flac"), 60.0, ReplayGain(-n, 0.9))
+    text = TrackText(f"t{n}", "a", "", "a", 1, n, 60.0)
+    return Playable(n, album_id, Path(f"/m/{n}.flac"), 60.0, ReplayGain(-n, 0.9), text)
 
 
 def test_make_sources() -> None:

@@ -4,22 +4,22 @@
 """The main window: the Slint component wired to the view models."""
 
 import asyncio
+import sqlite3
 import sys
-from collections import defaultdict
-from collections.abc import Callable, Sequence
-from concurrent.futures import Executor
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
-import beets.library
 import slint
 
-from roquette.library.index import LibraryIndex, Track, load_playables
+from roquette.library.index import Playable
+from roquette.library.query import QueryError
+from roquette.library.service import Collection, LibraryService
 from roquette.measure import Stopwatch
 from roquette.modules.covers import CoverGrid
-from roquette.modules.tracks import TrackList, format_length
+from roquette.modules.tracks import TrackList, format_length, sort_query
 from roquette.playback.source import Source, State
 from roquette.queue.pane import PlaylistPane, placeholder_groups
 from roquette.queue.replaygain import make_sources
@@ -60,6 +60,12 @@ TICK_DELAY = 0.02
 RESTART_AFTER = 3.0
 
 
+class DraggedTracks(NamedTuple):
+    """What a drag from the track list or the cover grid carries."""
+
+    ids: tuple[int, ...]
+
+
 def volume_factor(percent: float) -> float:
     """The volume slider's 0–100 to a linear factor, on a cubic curve as
     desktop volume controls use."""
@@ -82,7 +88,7 @@ class MainWindow:
         if options.color_scheme:
             w.color_scheme_override = options.color_scheme
 
-        self.index: LibraryIndex | None = None
+        self.collection: Collection | None = None
         self.track_list: TrackList | None = None
         self.track_model = TrackModel()
         w.track_rows = self.track_model
@@ -90,19 +96,22 @@ class MainWindow:
         self.cover_model: CoverModel | None = None
         self._cover_columns = 1
         self._cover_cells_shown = 0
-        self._album_tracks: dict[int, list[Track]] | None = None
+        # Counts the sorts of the track list: only the latest one's ids count.
+        self._sorts = 0
+        # The column and direction of the rows the track list shows.
+        self._track_order = (0, True)
+        self._tasks: set[asyncio.Task[Any]] = set()
 
         self.pane = PlaylistPane(placeholder_groups())
         self.playlist_model = PlaylistModel(self.pane, ui.PlaylistRowKind)
         w.playlist_rows = self.playlist_model
 
         # Set once loaded: the engine (on its own a little after the
-        # library), the library and the worker to query it on.
+        # library) and the library.
         self.engine: Engine | None = None
-        self.library: beets.library.Library | None = None
-        self.worker: Executor | None = None
+        self.library: LibraryService | None = None
         # The tracks of what the engine plays, by the engine's index.
-        self._playing: list[Track] = []
+        self._playing: list[Playable] = []
         # Counts the calls of `play`: only the latest one's look-up plays.
         self._play_requests = 0
         self._sink_noted = False
@@ -142,6 +151,12 @@ class MainWindow:
         self.window.show()
 
     def close(self) -> None:
+        for task in self._tasks:
+            task.cancel()
+        if self.track_list is not None:
+            self.track_list.close()
+        if self.cover_grid is not None:
+            self.cover_grid.close()
         if self.cover_model is not None:
             self.cover_model.close()
         if self._ticker is not None:
@@ -158,15 +173,54 @@ class MainWindow:
         engine.on_error = self._error
         engine.volume = volume_factor(self.window.volume)
 
-    def set_index(self, index: LibraryIndex) -> None:
-        self.index = index
+    def set_library(self, library: LibraryService, collection: Collection) -> None:
+        """The library, opened, and its index."""
+        self.library = library
         scale = self.options.scale
-        self.track_list = TrackList(index.tracks, scale)
+        self.track_list = TrackList(
+            collection.index.tracks.ids,
+            library.track_text,
+            self.track_model.rows_loaded,
+            scale,
+        )
+        self.cover_grid = CoverGrid(
+            collection.index.releases.ids,
+            library.release_text,
+            self._cover_cells_loaded,
+            scale,
+        )
+        self.set_collection(collection)
+
+    def set_collection(self, collection: Collection) -> None:
+        """The library's index, again after the library changed."""
+        assert self.track_list is not None and self.cover_grid is not None
+        self.collection = collection
+        index = collection.index
+        self.track_list.text.clear()
+        self.track_list.set_ids(index.tracks.ids)
+        self._track_order = (0, True)
+        self.window.track_current = -1
         self.track_model.set_tracks(self.track_list)
-        self.cover_grid = CoverGrid(index.releases, scale)
+        if self.track_list.sort_column:
+            self._sort_tracks(
+                sort_query(self.track_list.sort_column, self.track_list.ascending)
+            )
+        self.cover_grid.text.clear()
+        self.cover_grid.set_ids(index.releases.ids)
+        self.window.cover_current = -1
+        if self.cover_model is not None:
+            # Covers are cached by cell.
+            self.cover_model.close()
+            self.cover_model = None
+        scale = self.options.scale
         tracks, releases = len(index.tracks) * scale, len(index.releases) * scale
         self.window.status = f"{tracks:,} tracks\n{releases:,} releases"
         self._module_selected(self.window.module)
+
+    def _spawn(self, coroutine: Coroutine[Any, Any, Any]) -> None:
+        task = asyncio.get_running_loop().create_task(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     # The autoscroll measurement
 
@@ -189,7 +243,10 @@ class MainWindow:
                 f" covers loaded: {self.cover_model.loaded}, cached: {count}"
                 f" ({size / 2**20:.1f} MiB)"
             )
-        self.stopwatch.note(f"autoscroll over; track rows read: {reads}{covers}")
+        texts = self.track_list.text.reads if self.track_list is not None else 0
+        self.stopwatch.note(
+            f"autoscroll over; track rows read: {reads}, text reads: {texts}{covers}"
+        )
         if self.on_autoscroll_finished is not None:
             self.on_autoscroll_finished()
 
@@ -226,18 +283,51 @@ class MainWindow:
         the live playlist, M3)."""
         if self.track_list is None or row < 0:
             return
-        track = self.track_list.track(row)
-        tracks = self._album_tracks_of(track.album_id) if track.album_id else [track]
-        self.play(tracks, tracks.index(track) if track in tracks else 0)
+        item_id = self.track_list.id(row)
+        ids = self._release_of_track(item_id, self.track_list.position(row))
+        self.play(ids, ids.index(item_id))
 
     def _track_sort(self, column: int) -> None:
         if self.track_list is None:
             return
-        self.track_list.sort(column)
+        self._sort_tracks(self.track_list.sort(column))
+        self._show_track_sort()
+
+    def _show_track_sort(self) -> None:
+        assert self.track_list is not None
         self.window.track_sort_column = self.track_list.sort_column
         self.window.track_sort_ascending = self.track_list.ascending
-        self.window.track_current = -1
-        self.track_model.reset(len(self.track_list))
+
+    def _sort_tracks(self, query: str) -> None:
+        """Show the tracks in the order of a beets query's sort."""
+        self._sorts += 1
+        sort = self._sorts
+
+        async def sort_tracks() -> None:
+            assert self.library is not None and self.collection is not None
+            try:
+                ids = (
+                    await self.library.query(query)
+                    if query
+                    else self.collection.index.tracks.ids
+                )
+            except (QueryError, sqlite3.Error) as error:
+                # The rows stay as they were, and so does the header.
+                print(f"roquette: sorting the tracks: {error}", file=sys.stderr)
+                if sort == self._sorts and self.track_list is not None:
+                    tracks = self.track_list
+                    tracks.sort_column, tracks.ascending = self._track_order
+                    self._show_track_sort()
+                return
+            if sort != self._sorts or self.track_list is None:
+                return
+            self.track_list.set_ids(ids)
+            self._track_order = (self.track_list.sort_column, self.track_list.ascending)
+            self.window.track_current = -1
+            self.track_model.reset(len(self.track_list))
+
+        if self.library is not None:
+            self._spawn(sort_tracks())
 
     def _track_navigate(self, key: str, page: int) -> None:
         if self.track_list is not None and len(self.track_list):
@@ -246,17 +336,22 @@ class MainWindow:
     def _track_menu(self, row: int, action: str) -> None:
         # The spike has no "next" in the playlist; both append.
         if self.track_list is not None and row >= 0:
-            self._append([self.track_list.track(row)])
+            self._append([self.track_list.id(row)])
 
     def _track_drag_data(self, row: int) -> slint.DataTransfer:
         data = slint.DataTransfer()
         if self.track_list is not None:
+            data.user_data = DraggedTracks((self.track_list.id(row),))
             track = self.track_list.track(row)
-            data.user_data = [track]
-            data.plain_text = f"{track.artist} – {track.title}"
+            if track is not None:
+                data.plain_text = f"{track.artist} – {track.title}"
         return data
 
     # Covers
+
+    def _cover_cells_loaded(self, cells: list[int]) -> None:
+        if self.cover_model is not None:
+            self.cover_model.cells_loaded(cells)
 
     def _cover_columns_changed(self, columns: int) -> None:
         self._cover_columns = columns
@@ -285,30 +380,58 @@ class MainWindow:
     def _cover_drag_data(self, index: int) -> slint.DataTransfer:
         data = slint.DataTransfer()
         if self.cover_grid is not None:
+            data.user_data = DraggedTracks(tuple(self._release_tracks(index)))
             release = self.cover_grid.release(index)
-            data.user_data = self._release_tracks(index)
-            data.plain_text = f"{release.albumartist} – {release.title}"
+            if release is not None:
+                data.plain_text = f"{release.albumartist} – {release.title}"
         return data
 
-    def _release_tracks(self, index: int) -> list[Track]:
+    def _release_tracks(self, index: int) -> list[int]:
         assert self.cover_grid is not None
-        return self._album_tracks_of(self.cover_grid.release(index).id)
+        return self._album_tracks(self.cover_grid.id(index))
 
-    def _album_tracks_of(self, album_id: int) -> list[Track]:
-        assert self.index is not None
-        if self._album_tracks is None:
-            albums: defaultdict[int, list[Track]] = defaultdict(list)
-            for track in self.index.tracks:
-                albums[track.album_id].append(track)
-            self._album_tracks = dict(albums)
-        return self._album_tracks.get(album_id, [])
+    def _album_tracks(self, album_id: int) -> list[int]:
+        """The ids of a release's tracks, in its order."""
+        if self.collection is None:
+            return []
+        group = self.collection.groups.of_album(album_id)
+        return [] if group is None else self._group_tracks(group)
+
+    def _group_tracks(self, group: int) -> list[int]:
+        assert self.collection is not None
+        span = self.collection.groups.tracks(group)
+        return self.collection.index.tracks.ids[span.start : span.stop].tolist()
+
+    def _release_of_track(self, item_id: int, position: int | None) -> list[int]:
+        """The ids of the tracks of a track's release; the track alone if
+        it's a singleton. `position` is the track's in the index, if
+        known; otherwise it's looked up."""
+        assert self.collection is not None
+        tracks, groups = self.collection.index.tracks, self.collection.groups
+        if position is None:
+            try:
+                position = tracks.ids.index(item_id)
+            except ValueError:
+                return [item_id]
+        group = groups.of_track(position)
+        return self._group_tracks(group) if groups.album_ids[group] else [item_id]
 
     # Playlist
 
-    def _append(self, tracks: Sequence[Track]) -> None:
-        if tracks:
-            start, count = self.pane.append(tracks)
-            self.playlist_model.rows_changed(start, count)
+    def _append(self, ids: Sequence[int]) -> None:
+        """Add tracks to the pane, once their text is read."""
+        if not ids or self.library is None:
+            return
+        library, wanted = self.library, list(ids)
+
+        async def append() -> None:
+            text = await library.track_text(wanted)
+            tracks = [text[i] for i in wanted if i in text]
+            if tracks:
+                start, count = self.pane.append(tracks)
+                self.playlist_model.rows_changed(start, count)
+
+        self._spawn(append())
 
     def _playlist_select(self, row: int) -> None:
         self.pane.current = row
@@ -332,44 +455,39 @@ class MainWindow:
         self.window.playlist_current = current
 
     def _playlist_dropped(self, data: slint.DataTransfer) -> None:
-        tracks = data.user_data
-        if isinstance(tracks, list) and all(isinstance(t, Track) for t in tracks):
-            self._append(tracks)
+        dragged = data.user_data
+        if isinstance(dragged, DraggedTracks):
+            self._append(dragged.ids)
 
     # Transport
 
-    def play(self, tracks: Sequence[Track], start: int = 0) -> None:
-        """Play `tracks` from `start` on, once their files are looked up."""
-        if self.engine is None or self.library is None or self.worker is None:
+    def play(self, ids: Sequence[int], start: int = 0) -> None:
+        """Play the tracks `ids` from `start` on, once their files are
+        looked up."""
+        if self.engine is None or self.library is None or not ids:
             return
-        library, ids = self.library, [t.id for t in tracks]
+        library, wanted, first = self.library, list(ids), ids[start]
         self._play_requests += 1
         request = self._play_requests
 
         async def look_up() -> None:
-            assert self.worker is not None and self.engine is not None
-            playables = await self.inbox.run(
-                self.worker, lambda: load_playables(library, ids)
-            )
-            # Look-ups run on several workers and can finish out of order.
-            if request != self._play_requests:
+            playables = await library.playables(wanted)
+            # A later look-up wins, wherever this one was held up.
+            if request != self._play_requests or self.engine is None:
                 return
-            by_id = {t.id: t for t in tracks}
-            playing = [by_id[p.id] for p in playables]
-            if not playing:
+            if not playables:
                 return
-            first = tracks[start].id
-            index = next((n for n, t in enumerate(playing) if t.id == first), 0)
+            index = next((n for n, p in enumerate(playables) if p.id == first), 0)
             sources = make_sources(
                 playables, self.options.replaygain, self.options.replaygain_source
             )
-            self._playing = playing
+            self._playing = playables
             self.engine.play(sources, index)
 
-        asyncio.get_running_loop().create_task(look_up())
+        self._spawn(look_up())
 
     def _started(self, index: int, source: Source) -> None:
-        track = self._playing[index]
+        track = self._playing[index].text
         w = self.window
         w.now_title = track.title
         w.now_artist = (

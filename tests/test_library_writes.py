@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-"""S3's prototypes: the recording index, the grouping, the writes."""
+"""Writing while `beet` writes (S3), and beets bugs worked around."""
 
 import os
 import sqlite3
@@ -12,116 +12,11 @@ from typing import Any
 import beets.library
 import pytest
 
-from roquette.library import grouping, recordings, writes
-from roquette.library.index import Track, load_index
+from roquette.library import writes
 
 
 def item(music: Path, name: str, **fields: Any) -> beets.library.Item:
     return beets.library.Item(title=name, path=os.fsencode(music / name), **fields)
-
-
-def test_versions_best_first(tmp_path: Path) -> None:
-    library = beets.library.Library(str(tmp_path / "library.db"), str(tmp_path))
-    versions = [
-        ("mp3", "MP3", 0, 44100, 320_000, 200.0),
-        ("cd", "FLAC", 16, 44100, 900_000, 200.0),
-        ("hires", "FLAC", 24, 96000, 2_800_000, 199.0),
-        ("cd-longer", "FLAC", 16, 44100, 900_000, 203.0),
-    ]
-    for name, fmt, bitdepth, samplerate, bitrate, length in versions:
-        library.add(
-            item(
-                tmp_path,
-                name,
-                mb_trackid="rec",
-                format=fmt,
-                bitdepth=bitdepth,
-                samplerate=samplerate,
-                bitrate=bitrate,
-                length=length,
-            )
-        )
-    library.add(item(tmp_path, "alone", mb_trackid="other"))
-    library.add(item(tmp_path, "no id 1"))
-    library.add(item(tmp_path, "no id 2"))
-
-    index = recordings.index_versions(recordings.load_versions(library))
-    titles = {i.id: i.title for i in library.items()}
-    best_first = [titles[i] for i in index[next(iter(index))]]
-    assert best_first == ["hires", "cd-longer", "cd", "mp3"]
-    # Only recordings with versions; tracks without an id are on their own.
-    assert len(index) == 4
-    assert len({id(v) for v in index.values()}) == 1
-
-
-def track(id: int, album_id: int, disc: int, albumartist: str = "A") -> Track:
-    return Track(id, album_id, disc, id, f"t{id}", albumartist, "", albumartist, 1.0)
-
-
-def test_grouping() -> None:
-    tracks = [
-        track(1, 0, 0),
-        track(2, 0, 0),
-        track(3, 7, 1),
-        track(4, 7, 1),
-        track(5, 7, 2),
-        track(6, 8, 1),
-        track(7, 0, 0, albumartist="B"),
-    ]
-    groups = grouping.group(tracks)
-    assert [(g.album_id, g.albumartist, g.start, g.stop) for g in groups] == [
-        (0, "A", 0, 2),
-        (7, "A", 2, 5),
-        (8, "A", 5, 6),
-        (0, "B", 6, 7),
-    ]
-    assert groups[1].media == (grouping.Medium(1, 2, 4), grouping.Medium(2, 4, 5))
-    assert groups[0].media == ()
-
-
-def test_grouping_of_the_index(tmp_path: Path) -> None:
-    """A same-named album and single stay apart, as beets has them."""
-    library = beets.library.Library(str(tmp_path / "library.db"), str(tmp_path))
-    for album, count in [("Song", 3), ("Song", 1)]:
-        library.add_album(
-            [
-                item(tmp_path, f"{album}{count}{n}", album=album, albumartist="A")
-                for n in range(count)
-            ]
-        )
-    groups = grouping.group(load_index(library).tracks)
-    assert sorted(g.stop - g.start for g in groups) == [1, 3]
-
-
-def test_grouping_of_singletons(tmp_path: Path) -> None:
-    """Singletons as `beet import -s` leaves them: with the files' album
-    tags, and without an album artist."""
-    library = beets.library.Library(str(tmp_path / "library.db"), str(tmp_path))
-    for album in ["Beta", "Zed"]:
-        library.add_album(
-            [
-                item(tmp_path, f"{album}{n}", album=album, albumartist="A")
-                for n in (1, 2)
-            ]
-        )
-    for name, album, artist in [
-        ("s1", "Middle", "A"),
-        ("s2", "Alpha", "A"),
-        ("s3", "Alpha", "B"),
-        ("s4", "", "B"),
-    ]:
-        library.add(item(tmp_path, name, album=album, artist=artist, albumartist=""))
-    tracks = load_index(library).tracks
-    groups = grouping.group(tracks)
-    assert [
-        (g.albumartist, sorted(t.title for t in tracks[g.start : g.stop]))
-        for g in groups
-    ] == [
-        ("A", ["Beta1", "Beta2"]),
-        ("A", ["Zed1", "Zed2"]),
-        ("A", ["s1", "s2"]),
-        ("B", ["s3", "s4"]),
-    ]
 
 
 def make_library(tmp_path: Path) -> tuple[Path, int]:

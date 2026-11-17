@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-"""Wiring: S1's window and S2's engine on the beets library of `$BEETSDIR`."""
+"""Wiring: S1's window and S2's engine on M1's library layer."""
 
 import argparse
 import asyncio
@@ -11,36 +11,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from roquette.library import LibraryError
 from roquette.measure import Stopwatch
 from roquette.threads import Inbox
 
 if TYPE_CHECKING:
-    import beets.library
-
-    from roquette.library.index import LibraryIndex
     from roquette.playback.engine import Engine
-
-
-class NotADevelopmentCopy(Exception):
-    pass
-
-
-def check_library_copy() -> None:
-    """Refuse libraries other than a development copy.
-
-    Opening a beets library migrates its database to the installed beets'
-    schema, which writes to it. Until M1's read-only guard, S1 only opens
-    libraries whose config sets `roquette.library.writable`: the copies
-    of `just dev-library` and `scripts/fake-library.py`.
-    """
-    from beets import config
-
-    writable = config["roquette"]["library"]["writable"]
-    if not (writable.exists() and writable.get(bool)):
-        raise NotADevelopmentCopy(
-            f"{config.config_dir()} isn't a development copy of the beets data; "
-            "run with BEETSDIR=dev/beets (`just dev-library`)"
-        )
 
 
 def thumbnail_dir() -> Path:
@@ -62,19 +38,21 @@ def run(args: argparse.Namespace) -> int:
     os.environ.setdefault("SLINT_BACKEND", "winit-femtovg")
     import slint
 
-    from roquette.library import index
+    from roquette.library.query import QueryError
+    from roquette.library.service import LibraryService
     from roquette.ui import window as ui
 
     stopwatch.mark("imports done")
-    try:
-        check_library_copy()
-    except NotADevelopmentCopy as error:
-        print(f"roquette: {error}", file=sys.stderr)
-        return 1
 
     if args.floor:
         # Python, beets, Slint and GStreamer loaded, an empty window.
-        library = index.open_library()
+        from roquette.library import config, database
+
+        try:
+            reader = database.open_reader(config.read_config(args.beets_config))
+        except LibraryError as error:
+            print(f"roquette: {error}", file=sys.stderr)
+            return 1
         engine = make_engine(args)
         stopwatch.mark("library and gstreamer loaded")
         empty = ui.load_ui("empty_window").EmptyWindow()
@@ -86,7 +64,7 @@ def run(args: argparse.Namespace) -> int:
 
         slint.run_event_loop(floor())
         engine.close()
-        del library
+        del reader
         return 0
 
     compiled = ui.load_ui()
@@ -101,11 +79,13 @@ def run(args: argparse.Namespace) -> int:
         replaygain_source=args.replaygain_source,
     )
     window: ui.MainWindow | None = None
-    # Lives as long as the window: the library is queried on it.
-    pool = ThreadPoolExecutor(2, "roquette worker")
+    library: LibraryService | None = None
+    # GStreamer is loaded here, while the library opens on its reader.
+    pool = ThreadPoolExecutor(1, "roquette gstreamer")
+    status = 0
 
     async def main() -> None:
-        nonlocal window
+        nonlocal window, library, status
         stopwatch.mark("event loop running")
         loop = asyncio.get_running_loop()
         inbox = Inbox(loop)
@@ -114,27 +94,46 @@ def run(args: argparse.Namespace) -> int:
         stopwatch.mark("window created")
         gstreamer = asyncio.ensure_future(inbox.run(pool, lambda: make_engine(args)))
 
-        # beets connections are per thread (the Library object keeps one
-        # for each); the index is read on the worker that opened it.
-        def load() -> tuple["beets.library.Library", "LibraryIndex"]:
-            library = index.open_library()
-            return library, index.load_index(library)
-
-        library, library_index = await inbox.run(pool, load)
-        window.library = library
-        window.worker = pool
-        window.set_index(library_index)
-        stopwatch.mark(
-            f"library loaded ({len(library_index.tracks)} tracks, "
-            f"{len(library_index.releases)} releases)"
+        library = LibraryService(inbox, args.beets_config)
+        try:
+            settings = await library.open()
+        except LibraryError as error:
+            print(f"roquette: {error}", file=sys.stderr)
+            status = 1
+            slint.quit_event_loop()
+            return
+        mode = "writable" if settings.writable else "read-only"
+        stopwatch.note(
+            f"beets library {settings.database} ({mode}),"
+            f" plugins: {' '.join(library.plugins) or 'none'}"
         )
+        collection = await library.collection()
+        window.set_library(library, collection)
+        index = collection.index
+        stopwatch.mark(
+            f"library loaded ({len(index.tracks)} tracks, "
+            f"{len(index.releases)} releases)"
+        )
+        try:
+            library.watch(lambda: reload.start())
+        except OSError as error:
+            # Without inotify (used up, or a filesystem without it), the
+            # rest works; changes by other programs show after a restart.
+            print(
+                f"roquette: not watching the beets library for changes: {error}",
+                file=sys.stderr,
+            )
         window.set_engine(await gstreamer)
         stopwatch.mark("gstreamer loaded")
         if args.play:
-            query = args.play
-            ids = await inbox.run(pool, lambda: index.query_ids(library, query))
-            by_id = {t.id: t for t in library_index.tracks}
-            window.play([by_id[i] for i in ids if i in by_id])
+            try:
+                ids = await library.query(args.play)
+            except QueryError as error:
+                print(f"roquette: --play: {error}", file=sys.stderr)
+                status = 1
+                slint.quit_event_loop()
+                return
+            window.play(ids)
         if args.autoscroll:
 
             def finished() -> None:
@@ -143,10 +142,42 @@ def run(args: argparse.Namespace) -> int:
             window.on_autoscroll_finished = finished
             window.start_autoscroll(args.autoscroll, args.autoscroll_speed)
 
+    class Reload:
+        """Reloads the index after outside changes, one load at a time."""
+
+        def __init__(self) -> None:
+            self.task: asyncio.Task[None] | None = None
+            self.again = False
+
+        def start(self) -> None:
+            if self.task is not None:
+                self.again = True
+                return
+            self.task = asyncio.get_running_loop().create_task(self.run())
+
+        async def run(self) -> None:
+            try:
+                while True:
+                    self.again = False
+                    assert library is not None and window is not None
+                    collection = await library.collection()
+                    window.set_collection(collection)
+                    stopwatch.note(
+                        f"library changed ({len(collection.index.tracks)} tracks)"
+                    )
+                    if not self.again:
+                        return
+            finally:
+                self.task = None
+
+    reload = Reload()
+
     try:
         slint.run_event_loop(main())
     finally:
         if window is not None:
             window.close()
+        if library is not None:
+            library.close()
         pool.shutdown(wait=False, cancel_futures=True)
-    return 0
+    return status

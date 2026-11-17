@@ -26,7 +26,7 @@ from roquette.playback.gain import Mode, ReplayGain, factor
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst  # noqa: E402
 
-Gst.init(None)
+Gst.init([])
 
 RATE = 44100
 CHANNELS = 2

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-from roquette.library.index import Track
+from roquette.library.index import TrackText
 from roquette.queue.pane import (
     Entry,
     Group,
@@ -84,9 +84,9 @@ def test_navigate() -> None:
 def test_append_groups_by_release() -> None:
     p = PlaylistPane([])
     tracks = [
-        Track(1, 1, 1, 1, "A", "X", "Album", "X", 60),
-        Track(2, 1, 1, 2, "B", "X", "Album", "X", 60),
-        Track(3, 2, 1, 1, "C", "Y", "Other", "Y", 60),
+        TrackText("A", "X", "Album", "X", 1, 1, 60),
+        TrackText("B", "X", "Album", "X", 1, 2, 60),
+        TrackText("C", "Y", "Other", "Y", 1, 1, 60),
     ]
     assert p.append(tracks) == (0, 5)
     assert kinds(p) == [

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import NamedTuple
 
-from roquette.library.index import Track
+from roquette.library.index import TrackText
 from roquette.modules.tracks import format_length
 
 
@@ -221,7 +221,7 @@ class PlaylistPane:
                 return self.current, self.toggle(self.current)
         return self.current, None
 
-    def append(self, tracks: Sequence[Track]) -> tuple[int, int]:
+    def append(self, tracks: Sequence[TrackText]) -> tuple[int, int]:
         """Add tracks at the end; returns the first new row and the count."""
         start = len(self._refs)
         for track in tracks:

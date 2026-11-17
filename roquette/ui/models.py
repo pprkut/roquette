@@ -11,7 +11,7 @@ from typing import Any
 import slint
 
 from roquette.covers import CoverLoader, ImageCache, Pixels
-from roquette.modules.covers import CoverGrid
+from roquette.modules.covers import CoverGrid, cover_text
 from roquette.modules.tracks import TrackList
 from roquette.queue.pane import PlaylistPane
 from roquette.threads import Inbox
@@ -62,6 +62,12 @@ class TrackModel(LazyModel):
             return None
         self.reads += 1
         return self.tracks.row(row)._asdict()
+
+    def rows_loaded(self, rows: list[int]) -> None:
+        """The text of rows shown empty has arrived."""
+        for row in rows:
+            if row < self._count:
+                self.notify_row_changed(row)
 
 
 class CoverModel(LazyModel):
@@ -127,18 +133,33 @@ class CoverModel(LazyModel):
         cells = slint.ListModel([self._cell(i) for i in range(first, last)])
         return {"first": first, "cells": cells}
 
+    def cells_loaded(self, cells: list[int]) -> None:
+        """The text of cells shown empty has arrived."""
+        for row in sorted({cell // self.columns for cell in cells}):
+            if row < self._count:
+                self.notify_row_changed(row)
+
     def _cell(self, index: int) -> RowData:
         self.reads += 1
-        title, artist, year = self.grid.text(index)
+        release = self.grid.release(index)
+        if release is None:
+            # Shown as a cover that is loading, until the text arrives.
+            return {
+                "title": "",
+                "artist": "",
+                "year": "",
+                "cover": self._empty,
+                "has-cover": True,
+            }
+        title, artist, year = cover_text(release)
         cover = self._cache.get(index)
         has_cover = index not in self._missing
         if cover is None:
-            path = self.grid.release(index).cover
-            if path is None:
+            if release.cover is None:
                 has_cover = False
                 self._missing.add(index)
             elif has_cover:
-                self._loader.request(index, path)
+                self._loader.request(index, release.cover)
         return {
             "title": title,
             "artist": artist,

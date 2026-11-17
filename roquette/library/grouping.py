@@ -1,77 +1,94 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-"""The collection's grouping: release, medium, track.
+"""The collection's grouping: album artist, release, medium, track.
 
-The index's tracks are sorted in the collection's order (album artist,
-release, disc, track), so a release is a run of tracks, and so is each of
-its media. A group is therefore a range of the track list, not a list of
-its own: a few integers per release. Releases are beets albums
-(`album_id`); an album artist's singletons are a group of their own,
-after the artist's releases, whatever their `album` tag (the index's
-order, `roquette.library.index`).
-
-Prototype of S3, which measures it (scripts/measure-library.py).
+The index's tracks are in the collection's order (album artist,
+release, disc, track), so a release is a run of tracks, and so is each
+of its media. A group is therefore a range of the track list, kept as
+columns too: where each group starts, its `album_id` and album artist.
+Releases are beets albums (`album_id`), so a same-named album and
+single stay apart; an album artist's singletons are a group of their
+own (`album_id` 0), after the artist's releases, whatever their `album`
+tag (the index's order, `roquette.library.index`). Media are found when
+asked for, from the tracks' discs.
 """
 
-from collections.abc import Sequence
+from array import array
+from bisect import bisect_right
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from roquette.library.index import Track
+from roquette.library.index import Tracks
 
 
 class Medium(NamedTuple):
+    """Tracks `start` to `stop` (exclusive) of the index."""
+
     disc: int
     start: int
     stop: int
 
 
-class Group(NamedTuple):
-    """Tracks `start` to `stop` (exclusive) of the index.
+@dataclass(frozen=True, slots=True)
+class Groups:
+    """Group `n` is tracks `starts[n]` to `starts[n + 1]` of the index."""
 
-    `album_id` is 0 for an album artist's singletons.
-    """
+    starts: array[int] = field(default_factory=lambda: array("I", [0]))
+    album_ids: array[int] = field(default_factory=lambda: array("q"))
+    artists: array[int] = field(default_factory=lambda: array("I"))
 
-    album_id: int
-    albumartist: str
-    start: int
-    stop: int
-    media: tuple[Medium, ...]
+    def __len__(self) -> int:
+        return len(self.album_ids)
+
+    def tracks(self, group: int) -> range:
+        return range(self.starts[group], self.starts[group + 1])
+
+    def of_track(self, position: int) -> int:
+        """The group of the track at `position` in the index."""
+        return bisect_right(self.starts, position, hi=len(self)) - 1
+
+    def of_album(self, album_id: int) -> int | None:
+        """The group of a release, or None if it has no tracks."""
+        if not album_id:
+            return None
+        try:
+            return self.album_ids.index(album_id)
+        except ValueError:
+            return None
 
 
-def group(tracks: Sequence[Track]) -> list[Group]:
-    groups: list[Group] = []
-    start = 0
-    count = len(tracks)
-    while start < count:
-        first = tracks[start]
-        stop = start + 1
-        while stop < count and _same_group(first, tracks[stop]):
-            stop += 1
-        groups.append(
-            Group(
-                first.album_id,
-                first.albumartist,
-                start,
-                stop,
-                _media(tracks, start, stop) if first.album_id else (),
-            )
-        )
-        start = stop
+def group(tracks: Tracks) -> Groups:
+    groups = Groups()
+    album_ids, artists = tracks.album_ids, tracks.artists
+    for position in range(len(tracks)):
+        album_id, artist = album_ids[position], artists[position]
+        # The same release, or singletons of the same album artist.
+        if (
+            position
+            and album_id == album_ids[position - 1]
+            and (album_id or artist == artists[position - 1])
+        ):
+            continue
+        if position:
+            groups.starts.append(position)
+        groups.album_ids.append(album_id)
+        groups.artists.append(artist)
+    if len(tracks):
+        groups.starts.append(len(tracks))
     return groups
 
 
-def _same_group(first: Track, track: Track) -> bool:
-    if first.album_id:
-        return track.album_id == first.album_id
-    return not track.album_id and track.albumartist == first.albumartist
-
-
-def _media(tracks: Sequence[Track], start: int, stop: int) -> tuple[Medium, ...]:
-    media: list[Medium] = []
-    begin = start
-    for i in range(start + 1, stop + 1):
-        if i == stop or tracks[i].disc != tracks[begin].disc:
-            media.append(Medium(tracks[begin].disc, begin, i))
-            begin = i
-    return tuple(media)
+def media(tracks: Tracks, groups: Groups, group: int) -> list[Medium]:
+    """A release's media; none for singletons."""
+    if not groups.album_ids[group]:
+        return []
+    found: list[Medium] = []
+    span = groups.tracks(group)
+    begin = span.start
+    discs = tracks.discs
+    for position in range(span.start + 1, span.stop + 1):
+        if position == span.stop or discs[position] != discs[begin]:
+            found.append(Medium(discs[begin], begin, position))
+            begin = position
+    return found

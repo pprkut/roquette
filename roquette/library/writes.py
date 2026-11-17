@@ -3,7 +3,7 @@
 
 """Writing to the beets database while `beet` may be writing too.
 
-Prototype of S3's write strategy (docs/decisions/0003-library.md):
+S3's write strategy (docs/decisions/0003-library.md):
 
 - Writes go through a `Library` of their own (`WriteLibrary`): beets
   lets one transaction run at a time per `Library`, and a write waiting
@@ -32,13 +32,16 @@ from beets.dbcore.db import Transaction
 
 
 class SafeTransaction(Transaction):
+    # Takes the write lock before the transaction reads.
+    begin = "BEGIN IMMEDIATE"
+
     def __enter__(self) -> Self:
         with self.db._tx_stack() as stack:
             root = not stack
         super().__enter__()
         if root:
             try:
-                self.db._connection().execute("BEGIN IMMEDIATE")
+                self.db._connection().execute(self.begin)
             except BaseException:
                 with self.db._tx_stack() as stack:
                     stack.pop()
@@ -90,30 +93,52 @@ def is_locked(error: BaseException) -> bool:
     return isinstance(error, sqlite3.OperationalError) and "locked" in str(error)
 
 
+def retrying[T](
+    job: Callable[[], T],
+    give_up_after: float = 300,
+    sleep: Callable[[float], None] = time.sleep,
+    retried: Callable[[], None] = lambda: None,
+    stop: Callable[[], bool] = lambda: False,
+) -> T:
+    """Run `job` (one transaction) until the database isn't locked.
+
+    Between tries, it waits with growing pauses (up to 1 s), with beets'
+    lock released, and calls `retried`. Raises the last error when the
+    database stayed locked for `give_up_after` seconds, or as soon as
+    `stop` returns true. For reads too: in the rollback journal, `beet`
+    can hold the exclusive lock for longer than SQLite's timeout.
+    """
+    start = time.monotonic()
+    delay = 0.01
+    while True:
+        try:
+            return job()
+        except sqlite3.OperationalError as error:
+            if (
+                not is_locked(error)
+                or time.monotonic() - start > give_up_after
+                or stop()
+            ):
+                raise
+            retried()
+            sleep(delay)
+            delay = min(delay * 2, 1.0)
+
+
 def write_retrying(
     write: Callable[[], None],
     give_up_after: float = 300,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Run `write` (one transaction) until the database isn't locked.
-
-    Returns the number of retries. Raises the last error when the
-    database stayed locked for `give_up_after` seconds.
-    """
-    start = time.monotonic()
-    delay = 0.01
+    """`retrying` for a write; returns the number of retries."""
     retries = 0
-    while True:
-        try:
-            write()
-        except sqlite3.OperationalError as error:
-            if not is_locked(error) or time.monotonic() - start > give_up_after:
-                raise
-            retries += 1
-            sleep(delay)
-            delay = min(delay * 2, 1.0)
-        else:
-            return retries
+
+    def count() -> None:
+        nonlocal retries
+        retries += 1
+
+    retrying(write, give_up_after, sleep, count)
+    return retries
 
 
 def store_fields(

@@ -119,7 +119,7 @@ def make_audio(directory: Path, suffix: str) -> Path:
         gi.require_version("Gst", "1.0")
         from gi.repository import Gst
 
-        Gst.init(None)
+        Gst.init([])
         encoder = {
             ".flac": "flacenc",
             ".mp3": "lamemp3enc ! id3v2mux",
@@ -177,3 +177,57 @@ def test_rating_tag_without_tag_resets_rating(tmp_path: Path) -> None:
     stored = library.get_item(item.id)
     assert stored is not None
     assert stored.fmps_rating == 0.0
+
+
+FLEXIBLE_QUERIES = [
+    "play_count:3",
+    "play_count:4..",
+    "play_count:..3",
+    "play_count:0..3",
+    "play_count:",
+    "^play_count:1..",
+    "skip_count:1..",
+    "fmps_rating:0.8",
+    "fmps_rating:0.5..",
+    "fmps_rating:..0.5",
+    "last_played:2020..",
+    "last_played:..2019",
+    "last_played:2023-11",
+    "play_count:1.. fmps_rating:0.5..",
+    "play_count:12 , fmps_rating:0.2",
+    "title:t1 play_count:..20",
+]
+
+
+@pytest.mark.usefixtures("loaded")
+@pytest.mark.parametrize("text", FLEXIBLE_QUERIES)
+def test_flexible_queries_in_sql(tmp_path: Path, text: str) -> None:
+    """The plugin's queries find what beets' own find, in SQL."""
+    from datetime import datetime
+
+    library = beets.library.Library(str(tmp_path / "library.db"), str(tmp_path))
+    fields: list[dict[str, object]] = [
+        {},
+        {"play_count": 0, "skip_count": 2},
+        {"play_count": 3, "fmps_rating": 0.2},
+        {"play_count": 12, "fmps_rating": 0.8},
+        {"fmps_rating": 0.5, "last_played": datetime(2023, 11, 5).timestamp()},
+        {"play_count": 30, "last_played": datetime(2018, 1, 1).timestamp()},
+    ]
+    for n, values in enumerate(fields):
+        item = beets.library.Item(title=f"t{n}", path=os.fsencode(tmp_path / f"{n}"))
+        item.update(values)
+        library.add(item)
+
+    parsed, _ = beets.library.parse_query_string(text, beets.library.Item)
+    where, subvals = parsed.clause()
+    assert where is not None
+    with library.transaction() as tx:
+        in_sql = {
+            row[0] for row in tx.query(f"SELECT id FROM items WHERE {where}", subvals)
+        }
+    # beets' own query classes, matched in Python.
+    beets.library.Item._queries.clear()
+    in_python = {item.id for item in library.items(text)}
+    assert in_sql == in_python
+    assert in_python

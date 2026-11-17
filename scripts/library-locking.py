@@ -66,9 +66,9 @@ def copy_library(source_dir: Path, wal: bool) -> tuple[Path, Path]:
     os.environ["BEETSDIR"] = str(source_dir)
     from beets import config
 
-    from roquette.app import check_library_copy
+    from roquette.library.config import check_development_copy
 
-    check_library_copy()
+    check_development_copy()
     source = Path(config["library"].as_filename())
     directory = config["directory"].as_filename()
     shutil.rmtree(WORK, ignore_errors=True)

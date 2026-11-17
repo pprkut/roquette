@@ -5,6 +5,7 @@
 
 import argparse
 from collections.abc import Sequence
+from pathlib import Path
 
 from roquette import __version__
 
@@ -16,6 +17,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
+    )
+    parser.add_argument(
+        "--beets-config",
+        type=Path,
+        metavar="FILE",
+        help="a beets config file read over the user's, as `beet -c`"
+        " (the user's is in $BEETSDIR or beets' default directory)",
     )
     parser.add_argument(
         "--module",
@@ -44,7 +52,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     playback.add_argument(
         "--play",
         metavar="QUERY",
-        help="play the tracks a beets query finds, once the library is loaded",
+        help="play the tracks a beets query finds, in its order, once the library"
+        " is loaded",
     )
     playback.add_argument(
         "--audio-sink",
