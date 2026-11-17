@@ -38,6 +38,7 @@ def run(args: argparse.Namespace) -> int:
     os.environ.setdefault("SLINT_BACKEND", "winit-femtovg")
     import slint
 
+    from roquette.library.query import QueryError
     from roquette.library.service import LibraryService
     from roquette.ui import window as ui
 
@@ -125,7 +126,13 @@ def run(args: argparse.Namespace) -> int:
         window.set_engine(await gstreamer)
         stopwatch.mark("gstreamer loaded")
         if args.play:
-            ids = await library.query(args.play)
+            try:
+                ids = await library.query(args.play)
+            except QueryError as error:
+                print(f"roquette: --play: {error}", file=sys.stderr)
+                status = 1
+                slint.quit_event_loop()
+                return
             window.play(ids)
         if args.autoscroll:
 
