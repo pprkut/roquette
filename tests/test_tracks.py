@@ -140,6 +140,29 @@ def test_row_text_is_bounded() -> None:
     run(main)
 
 
+def test_row_text_missing_ids() -> None:
+    """An id the reader doesn't find (deleted) isn't read again until
+    the library changes."""
+
+    async def main() -> None:
+        reader = Reader()
+        loaded: list[list[int]] = []
+        text: RowText[TrackText] = RowText(reader, loaded.append)
+        text.get(1)
+        text.get(9)
+        await asyncio.sleep(0.01)
+        assert loaded == [[1]]
+        assert text.get(9) is None
+        await asyncio.sleep(0.01)
+        assert reader.asked == [[1, 9]]
+        text.clear()
+        text.get(9)
+        await asyncio.sleep(0.01)
+        assert reader.asked == [[1, 9], [9]]
+
+    run(main)
+
+
 def test_row_text_cleared_while_reading() -> None:
     """Text read before the library changed isn't kept."""
 

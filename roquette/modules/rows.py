@@ -9,7 +9,9 @@ waited for on the event loop: a row without its text yet is shown
 empty, the ids asked for in one turn of the event loop are read
 together, and the view is told which ids arrived so it updates those
 rows. Text is kept for the most recently asked-for ids only, a few
-screens' worth.
+screens' worth. An id the reader doesn't find (a track deleted by
+another program, until the library reloads) isn't asked for again
+before `clear()`.
 """
 
 import asyncio
@@ -32,6 +34,7 @@ class RowText[T]:
         self._text: OrderedDict[int, T] = OrderedDict()
         self._wanted: set[int] = set()
         self._loading: set[int] = set()
+        self._missing: set[int] = set()
         self._flush: asyncio.Handle | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         # Text read before a `clear()` is dropped when it arrives.
@@ -48,7 +51,7 @@ class RowText[T]:
         if text is not None:
             self._text.move_to_end(item_id)
             return text
-        if item_id not in self._loading:
+        if item_id not in self._loading and item_id not in self._missing:
             self._wanted.add(item_id)
             if self._flush is None:
                 self._flush = asyncio.get_running_loop().call_soon(self._read)
@@ -60,6 +63,7 @@ class RowText[T]:
         self._text.clear()
         self._wanted.clear()
         self._loading.clear()
+        self._missing.clear()
 
     def close(self) -> None:
         self.clear()
@@ -92,7 +96,8 @@ class RowText[T]:
         if generation != self._generation:
             return
         self._store(found.items())
-        self._loaded(ids)
+        self._missing.update(i for i in ids if i not in found)
+        self._loaded([i for i in ids if i in found])
 
     def _store(self, found: Iterable[tuple[int, T]]) -> None:
         for item_id, text in found:
