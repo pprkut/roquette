@@ -113,7 +113,15 @@ def run(args: argparse.Namespace) -> int:
             f"library loaded ({len(index.tracks)} tracks, "
             f"{len(index.releases)} releases)"
         )
-        library.watch(lambda: reload.start())
+        try:
+            library.watch(lambda: reload.start())
+        except OSError as error:
+            # Without inotify (used up, or a filesystem without it), the
+            # rest works; changes by other programs show after a restart.
+            print(
+                f"roquette: not watching the beets library for changes: {error}",
+                file=sys.stderr,
+            )
         window.set_engine(await gstreamer)
         stopwatch.mark("gstreamer loaded")
         if args.play:
