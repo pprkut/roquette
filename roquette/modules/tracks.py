@@ -97,6 +97,12 @@ class TrackList:
             return EMPTY_ROW
         return row_text(text)
 
+    def position(self, row: int) -> int | None:
+        """The row's position in the index, if the rows are in its order."""
+        if self.sort_column or not self.ascending:
+            return None
+        return row % len(self._ids)
+
     def track(self, row: int) -> TrackText | None:
         return self.text.get(self.id(row))
 

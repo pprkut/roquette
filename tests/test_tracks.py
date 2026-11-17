@@ -94,6 +94,15 @@ def test_scale_repeats_the_library() -> None:
     run(main)
 
 
+def test_position_in_the_index() -> None:
+    tracks = TrackList(array("q", [1, 2, 3]), Reader(), lambda rows: None, scale=2)
+    assert [tracks.position(row) for row in (0, 2, 4)] == [0, 2, 1]
+    tracks.sort(0)
+    assert tracks.position(0) is None
+    tracks.sort(1)
+    assert tracks.position(0) is None
+
+
 def test_sort() -> None:
     async def main() -> None:
         tracks = TrackList(array("q", [1, 2, 3]), Reader(), lambda rows: None)

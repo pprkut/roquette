@@ -19,6 +19,7 @@ from typing import Any, cast
 
 import pytest
 
+from roquette.library.grouping import Groups
 from roquette.library.index import Playable, TrackText
 from roquette.measure import Stopwatch
 from roquette.modules.tracks import TrackList
@@ -134,6 +135,30 @@ def test_a_failed_sort_keeps_the_header() -> None:
         assert (window.window.track_sort_column, tracks.sort_column) == (1, 1)
         assert window.window.track_sort_ascending
         assert list(tracks._ids) == [3, 2, 1]
+        inbox.close()
+
+    asyncio.run(main())
+
+
+def test_release_of_track() -> None:
+    compiled = SimpleNamespace(
+        MainWindow=lambda: SimpleNamespace(volume=80.0),
+        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
+    )
+
+    async def main() -> None:
+        inbox = Inbox(asyncio.get_running_loop())
+        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
+        # A release of tracks 5 and 6, and a singleton, 7.
+        groups = Groups(array("I", [0, 2, 3]), array("q", [9, 0]), array("I", [1, 1]))
+        tracks = SimpleNamespace(ids=array("q", [5, 6, 7]))
+        window.collection = cast(
+            Any, SimpleNamespace(index=SimpleNamespace(tracks=tracks), groups=groups)
+        )
+        assert window._release_of_track(6, None) == [5, 6]
+        assert window._release_of_track(6, 1) == [5, 6]
+        assert window._release_of_track(7, None) == [7]
+        assert window._release_of_track(8, None) == [8]
         inbox.close()
 
     asyncio.run(main())

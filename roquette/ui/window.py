@@ -284,7 +284,7 @@ class MainWindow:
         if self.track_list is None or row < 0:
             return
         item_id = self.track_list.id(row)
-        ids = self._release_of_track(item_id)
+        ids = self._release_of_track(item_id, self.track_list.position(row))
         self.play(ids, ids.index(item_id))
 
     def _track_sort(self, column: int) -> None:
@@ -395,22 +395,26 @@ class MainWindow:
         if self.collection is None:
             return []
         group = self.collection.groups.of_album(album_id)
-        if group is None:
-            return []
+        return [] if group is None else self._group_tracks(group)
+
+    def _group_tracks(self, group: int) -> list[int]:
+        assert self.collection is not None
         span = self.collection.groups.tracks(group)
         return self.collection.index.tracks.ids[span.start : span.stop].tolist()
 
-    def _release_of_track(self, item_id: int) -> list[int]:
+    def _release_of_track(self, item_id: int, position: int | None) -> list[int]:
         """The ids of the tracks of a track's release; the track alone if
-        it's a singleton."""
+        it's a singleton. `position` is the track's in the index, if
+        known; otherwise it's looked up."""
         assert self.collection is not None
-        tracks = self.collection.index.tracks
-        try:
-            position = tracks.ids.index(item_id)
-        except ValueError:
-            return [item_id]
-        album_id = tracks.album_ids[position]
-        return self._album_tracks(album_id) if album_id else [item_id]
+        tracks, groups = self.collection.index.tracks, self.collection.groups
+        if position is None:
+            try:
+                position = tracks.ids.index(item_id)
+            except ValueError:
+                return [item_id]
+        group = groups.of_track(position)
+        return self._group_tracks(group) if groups.album_ids[group] else [item_id]
 
     # Playlist
 
