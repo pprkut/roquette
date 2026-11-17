@@ -54,7 +54,7 @@ test = [
 ]
 lint = [
     "mypy==2.4.1",
-    "ruff==0.17.3",
+    "ruff==0.17.4",
 ]
 audit = [
     "deptry==0.25.1",
