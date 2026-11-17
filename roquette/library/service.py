@@ -15,7 +15,8 @@ Outside changes to the database arrive through the watch
 another program committed, rather than roquette's own writes (or a WAL
 checkpoint) changing the file: it changes for a connection when any
 other connection commits. With a writer, its connection asks, as the
-reader's would see the writer's commits too.
+reader's would see the writer's commits too. When another file
+replaced the database, the reader and the writer connect again.
 """
 
 import asyncio
@@ -68,6 +69,10 @@ def load_collection(library: beets.library.Library) -> Collection:
 def data_version(library: beets.library.Library) -> int:
     row = library._connection().execute("PRAGMA data_version").fetchone()
     return int(row[0])
+
+
+def close_connections(library: beets.library.Library) -> None:
+    library._close()
 
 
 class LibraryService:
@@ -183,6 +188,12 @@ class LibraryService:
         self._watch = DatabaseWatch(self.settings.database, check, delay)
 
     async def _check(self, changed: Callable[[], None], replaced: bool) -> None:
+        if replaced:
+            # Connections opened before still read the old file: beets
+            # opens new ones as they're needed.
+            await self._reader.run(close_connections)
+            if self._writer is not None:
+                await self._writer.run(close_connections)
         version = await self._changes(data_version)
         if replaced or version != self._version:
             self._version = version

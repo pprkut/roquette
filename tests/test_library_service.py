@@ -284,3 +284,40 @@ def test_service_read_only_reports_outside_changes(library: Library) -> None:
             service.close()
 
     run(main)
+
+
+@pytest.mark.parametrize("write", [False, True])
+def test_service_reads_a_replaced_database(
+    library: Library, beets_dir: Path, write: bool
+) -> None:
+    """A database moved over the old one, as a restored backup is."""
+    if write:
+        writable(beets_dir)
+    item_id = library.items["Hey You"]
+    changes: list[int] = []
+    database = Path(library.path)
+    copy = database.with_name("copy.blb")
+
+    async def main(inbox: Inbox) -> None:
+        service = LibraryService(inbox)
+        try:
+            await service.open()
+            service.watch(lambda: changes.append(1), delay=0.1)
+            await service.track_text([item_id])
+            other = sqlite3.connect(copy)
+            with other:
+                sqlite3.connect(database).backup(other)
+                other.execute("UPDATE items SET title = 'Hey' WHERE id = ?", (item_id,))
+            other.close()
+            copy.replace(database)
+            await asyncio.sleep(0.4)
+            assert changes == [1]
+            text = await service.track_text([item_id])
+            assert text[item_id].title == "Hey"
+            if write:
+                await service.store(item_id, lambda item: {"play_count": 4})
+                assert list(await service.query("play_count:4")) == [item_id]
+        finally:
+            service.close()
+
+    run(main)
