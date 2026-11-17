@@ -4,6 +4,7 @@
 """The main window: the Slint component wired to the view models."""
 
 import asyncio
+import sqlite3
 import sys
 from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import slint
 
 from roquette.library.index import Playable
+from roquette.library.query import QueryError
 from roquette.library.service import Collection, LibraryService
 from roquette.measure import Stopwatch
 from roquette.modules.covers import CoverGrid
@@ -96,6 +98,8 @@ class MainWindow:
         self._cover_cells_shown = 0
         # Counts the sorts of the track list: only the latest one's ids count.
         self._sorts = 0
+        # The column and direction of the rows the track list shows.
+        self._track_order = (0, True)
         self._tasks: set[asyncio.Task[Any]] = set()
 
         self.pane = PlaylistPane(placeholder_groups())
@@ -194,6 +198,7 @@ class MainWindow:
         index = collection.index
         self.track_list.text.clear()
         self.track_list.set_ids(index.tracks.ids)
+        self._track_order = (0, True)
         self.window.track_current = -1
         self.track_model.set_tracks(self.track_list)
         if self.track_list.sort_column:
@@ -286,6 +291,10 @@ class MainWindow:
         if self.track_list is None:
             return
         self._sort_tracks(self.track_list.sort(column))
+        self._show_track_sort()
+
+    def _show_track_sort(self) -> None:
+        assert self.track_list is not None
         self.window.track_sort_column = self.track_list.sort_column
         self.window.track_sort_ascending = self.track_list.ascending
 
@@ -296,14 +305,24 @@ class MainWindow:
 
         async def sort_tracks() -> None:
             assert self.library is not None and self.collection is not None
-            ids = (
-                await self.library.query(query)
-                if query
-                else self.collection.index.tracks.ids
-            )
+            try:
+                ids = (
+                    await self.library.query(query)
+                    if query
+                    else self.collection.index.tracks.ids
+                )
+            except (QueryError, sqlite3.Error) as error:
+                # The rows stay as they were, and so does the header.
+                print(f"roquette: sorting the tracks: {error}", file=sys.stderr)
+                if sort == self._sorts and self.track_list is not None:
+                    tracks = self.track_list
+                    tracks.sort_column, tracks.ascending = self._track_order
+                    self._show_track_sort()
+                return
             if sort != self._sorts or self.track_list is None:
                 return
             self.track_list.set_ids(ids)
+            self._track_order = (self.track_list.sort_column, self.track_list.ascending)
             self.window.track_current = -1
             self.track_model.reset(len(self.track_list))
 
