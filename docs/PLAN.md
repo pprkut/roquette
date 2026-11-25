@@ -487,6 +487,16 @@ From here on every milestone ships with tests.
   (context, actions, lazy loading), the transport bar wired to the engine.
   A smoke test starts the window under Xvfb in CI (in the jobs for pull
   requests, `master` and weekly).
+  Open from M1: the views read the text of their rows through the reader
+  thread, and on the desktop the hand-over costs frames. The track list
+  scrolls at 49 fps (S1, with the text in memory: 60), and at ten times
+  the speed (`--scale 10`) at 28 fps with the rows empty, as the text
+  arrives after they've scrolled past; the window is filled at 512 ms
+  (budget 500). The option left: the views read the rows on screen on
+  the main thread, through a read-only connection with a busy timeout
+  of 0 that falls back to the reader while `beet` holds a lock, which
+  would amend `docs/decisions/0003-library.md` ("a view waits for its
+  rows without blocking the event loop").
 - **M6 — Tree module.** The collection tree with beets-query search,
   adding to the playlist (double-click, context menu, drag and drop).
 - **M7 — Playlist pane, basic.** One line per track, reordering, removing,
