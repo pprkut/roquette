@@ -60,7 +60,9 @@ That window matters three ways:
   first, then "Internal data stream error" or "state change failed")
   and leaves the pipeline waiting for the stream: the audible file
   plays to its end, then nothing, and no EOS comes. A URI set from the
-  event loop then is taken gaplessly, as if `about-to-finish` had set it.
+  event loop then is taken gaplessly, as if `about-to-finish` had set it
+  (1.24). On CI's 1.28 it once wasn't: the audible track ended and the
+  new file never started.
 - A corrupt FLAC (garbage in its frames) only posts warnings: it plays,
   with whatever the decoder makes of it.
 - A `filesrc` that failed has no parent any more when its message is
@@ -148,9 +150,11 @@ break down:
 - **Errors are skipped and reported** (`PlaybackError` with a `Problem`:
   missing, unreadable, unsupported, decode, other, and what plays
   instead). A failing next file lets the audible one play to its end:
-  the file after the failed one is queued late, gaplessly. With nothing
-  after it, a timer finds the end of the audible file (one timer, at its
-  remaining time). Sources that failed are skipped until the next
+  the file after the failed one is queued late, gaplessly. Until
+  something after it starts, a timer watches the end of the audible file
+  (at its remaining time, then a quarter of a second later): once its
+  position stands still, the engine starts the queued file itself, if
+  GStreamer didn't, or what follows. Sources that failed are skipped until the next
   `play()`; ten failures in a row stop playback.
 - **Against playbin3 1.24's failed starts**: `about-to-finish` leaves the
   next source to the event loop until the pipeline has reached the state
