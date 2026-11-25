@@ -8,7 +8,8 @@
 #
 #   scripts/setup-ci.sh [--oldest]
 #
-# --oldest installs the oldest supported versions (ci/oldest.txt).
+# --oldest installs the oldest supported versions (ci/oldest.txt), with
+# what the tests need.
 #
 # In CI, pip installs into the Python that actions/setup-python set up.
 # In a cloud session (CLAUDE_CODE_REMOTE=true), Ubuntu's own Python
@@ -21,8 +22,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 constraints=()
+groups=(--group dev)
 if [ "${1:-}" = --oldest ]; then
     constraints=(--constraint ci/oldest.txt)
+    # Only the tests run with the oldest versions (and `just`, from the
+    # repo group): the type stubs need a newer PyGObject than the oldest.
+    groups=(--group test --group repo)
 fi
 
 # System libraries, added with the code that needs them:
@@ -64,4 +69,4 @@ fi
 
 # Dependency groups need pip 25.1 or later.
 "$python" -m pip install --quiet --upgrade pip
-"$python" -m pip install --quiet --editable . --group dev "${constraints[@]}"
+"$python" -m pip install --quiet --editable . "${groups[@]}" "${constraints[@]}"
