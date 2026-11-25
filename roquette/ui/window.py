@@ -20,7 +20,8 @@ from roquette.library.service import Collection, LibraryService
 from roquette.measure import Stopwatch
 from roquette.modules.covers import CoverGrid
 from roquette.modules.tracks import TrackList, format_length, sort_query
-from roquette.playback.source import Source, State
+from roquette.playback.gain import AppliedGain
+from roquette.playback.source import PlaybackError, Source, SourceList, State
 from roquette.queue.pane import PlaylistPane, placeholder_groups
 from roquette.queue.replaygain import make_sources
 from roquette.threads import Inbox
@@ -110,7 +111,9 @@ class MainWindow:
         # library) and the library.
         self.engine: Engine | None = None
         self.library: LibraryService | None = None
-        # The tracks of what the engine plays, by the engine's index.
+        # What the engine plays, and the tracks of it: S2's list, until
+        # the live playlist (M3).
+        self._sources = SourceList()
         self._playing: list[Playable] = []
         # Counts the calls of `play`: only the latest one's look-up plays.
         self._play_requests = 0
@@ -168,6 +171,7 @@ class MainWindow:
         """The engine, attached to the running event loop."""
         self.engine = engine
         engine.attach(asyncio.get_running_loop())
+        engine.upcoming = self._sources
         engine.on_started = self._started
         engine.on_state_changed = self._state_changed
         engine.on_error = self._error
@@ -494,11 +498,15 @@ class MainWindow:
                 playables, self.options.replaygain, self.options.replaygain_source
             )
             self._playing = playables
-            self.engine.play(sources, index)
+            self._sources.sources = tuple(sources)
+            self.engine.play(sources[index])
 
         self._spawn(look_up())
 
-    def _started(self, index: int, source: Source) -> None:
+    def _started(self, source: Source, gain: AppliedGain) -> None:
+        index = self._sources.index(source)
+        if index is None:
+            return
         track = self._playing[index].text
         w = self.window
         w.now_title = track.title
@@ -527,9 +535,14 @@ class MainWindow:
         elif self.engine is not None:
             self._show_position(self.engine.position() or 0.0)
 
-    def _error(self, source: Source | None, message: str) -> None:
-        name = source.path.name if source is not None else "?"
-        print(f"roquette: can't play {name}: {message}", file=sys.stderr)
+    def _error(self, error: PlaybackError) -> None:
+        name = error.source.path if error.source is not None else "?"
+        then = "skipped" if error.skipped_to is not None else "stopped"
+        print(
+            f"roquette: can't play {name} ({error.problem.value}: {error.message});"
+            f" {then}",
+            file=sys.stderr,
+        )
 
     def _clear_now_playing(self) -> None:
         w = self.window
@@ -564,19 +577,26 @@ class MainWindow:
             engine.pause()
         elif engine.state is State.PAUSED:
             engine.resume()
-        elif engine.sources:
-            engine.play(engine.sources)
+        elif self._sources.sources:
+            engine.play(self._sources.sources[0])
 
     def _previous(self) -> None:
         engine = self.engine
         if engine is None or engine.current is None:
             return
-        if (engine.position() or 0.0) > RESTART_AFTER or not engine.skip(-1):
+        previous = self._sources.offset(engine.current, -1)
+        if previous is None or (engine.position() or 0.0) > RESTART_AFTER:
             self._seek(0.0)
+        else:
+            engine.play(previous, paused=engine.state is State.PAUSED)
 
     def _next(self) -> None:
-        if self.engine is not None:
-            self.engine.skip(1)
+        engine = self.engine
+        if engine is None or engine.current is None:
+            return
+        following = self._sources.offset(engine.current, 1)
+        if following is not None:
+            engine.play(following, paused=engine.state is State.PAUSED)
 
     def _seek(self, position: float) -> None:
         if self.engine is not None and self.engine.current is not None:

@@ -24,7 +24,7 @@ from roquette.library.index import Playable, TrackText
 from roquette.measure import Stopwatch
 from roquette.modules.tracks import TrackList
 from roquette.playback.gain import ReplayGain
-from roquette.playback.source import Source
+from roquette.playback.source import Source, State
 from roquette.threads import Inbox
 from roquette.ui import window as ui
 from roquette.ui.window import WindowOptions, load_ui, volume_factor
@@ -44,10 +44,21 @@ def test_volume_factor() -> None:
 
 class FakeEngine:
     def __init__(self) -> None:
-        self.played: list[list[Path]] = []
+        self.played: list[Path] = []
+        self.sought: list[float] = []
+        self.current: Source | None = None
+        self.state = State.PLAYING
+        self.at = 0.0
 
-    def play(self, sources: Sequence[Source], index: int = 0) -> None:
-        self.played.append([source.path for source in sources])
+    def play(self, source: Source, *, paused: bool = False) -> None:
+        self.played.append(source.path)
+        self.current = source
+
+    def position(self) -> float:
+        return self.at
+
+    def seek(self, position: float) -> None:
+        self.sought.append(position)
 
 
 class FakeLibrary:
@@ -90,7 +101,42 @@ def test_the_latest_play_wins() -> None:
         inbox.close()
 
     asyncio.run(main())
-    assert engine.played == [[Path("2.flac")]]
+    assert engine.played == [Path("2.flac")]
+
+
+def test_previous_and_next() -> None:
+    """Until the live playlist (M3), the window plays its list."""
+    compiled = SimpleNamespace(
+        MainWindow=lambda: SimpleNamespace(volume=80.0),
+        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
+    )
+    engine = FakeEngine()
+
+    async def main() -> None:
+        inbox = Inbox(asyncio.get_running_loop())
+        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
+        window.engine = cast(Any, engine)
+        a, b, c = (Source(Path(f"{n}.flac")) for n in "abc")
+        window._sources.sources = (a, b, c)
+        engine.current = b
+        window._next()
+        assert engine.played == [Path("c.flac")]
+        window._next()
+        assert engine.played == [Path("c.flac")]
+        # Back to the start of the track after a few seconds, else the
+        # one before.
+        engine.at = 5.0
+        window._previous()
+        assert engine.sought == [0.0]
+        engine.at = 1.0
+        window._previous()
+        assert engine.played[-1] == Path("b.flac")
+        engine.current = a
+        window._previous()
+        assert engine.sought == [0.0, 0.0]
+        inbox.close()
+
+    asyncio.run(main())
 
 
 class LockedLibrary:
