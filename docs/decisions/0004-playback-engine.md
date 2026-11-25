@@ -17,10 +17,11 @@ buffer sizes for fewer wake-ups, and `pygobject-stubs`. The plan adds a
 volume above 100% and, with each track that starts, the ReplayGain
 applied to it, for the volume control (M5).
 
-M2 was built in a cloud session (GStreamer 1.24.2, Ubuntu 24.04, as on
-CI's runners), without a sound card or the dev library. What GStreamer
-does at the edges was found by experiment first; the tests then play
-generated FLAC files into an `appsink`, as S2's did.
+M2 was built in a cloud session (GStreamer 1.24.2, Ubuntu 24.04),
+without a sound card or the dev library. What GStreamer does at the
+edges was found by experiment there first; the tests then play
+generated FLAC files into an `appsink`, as S2's did. CI's runners have
+GStreamer 1.28.2 (Ubuntu 26.04), where the tests pass too.
 
 ## Findings
 
@@ -83,8 +84,8 @@ That window matters three ways:
 With all cores busy (six busy loops on four), playbin3 sometimes stays in
 READY with PLAYING pending and posts nothing, within a few starts of a
 short file; with no Python callbacks at all too, so it's GStreamer's.
-Without load, 160 starts in a row never did. The desktop's GStreamer
-(1.28) hasn't been tried.
+Without load, 160 starts in a row never did. GStreamer 1.28 hasn't been
+tried under load.
 
 ### Memory per track
 
@@ -235,8 +236,9 @@ music, on the desktop.
   - The sink's sizes need a listening test and a `just measure` run on
     the desktop (pulsesink through pipewire-pulse, and pipewiresink,
     which has neither property).
-  - Whether GStreamer 1.28 still fails starts as 1.24 does; the
-    workarounds cost nothing when it doesn't.
+  - Whether GStreamer 1.28 still fails starts as 1.24 does (the tests
+    pass on CI's 1.28, which doesn't tell); the workarounds cost nothing
+    when it doesn't.
   - The stale stream past the filter can be heard for a moment; the
     first transition after a start isn't gapless for a first track
     under about a second.
