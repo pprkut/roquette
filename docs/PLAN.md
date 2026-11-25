@@ -290,9 +290,12 @@ same way.
 ### Playback notes
 
 - **Gapless**: `playbin3`'s `about-to-finish` signal fires in a streaming
-  thread; the next URI must be set there, synchronously. The queue
-  therefore keeps "what plays next" (including the chosen version of the
-  next recording) resolved ahead, available without the event loop.
+  thread; the next URI must be set there, synchronously. The engine asks
+  the queue (its provider) there, so the queue keeps "what plays next"
+  (including the chosen version of the next recording) resolved ahead,
+  available without the event loop. When it changes, the engine follows
+  it at the track boundary: the next stream passes the filter about a
+  second before it's heard (M2, `docs/decisions/0004-playback-engine.md`).
 - **ReplayGain**: the gain has to change exactly at the track boundary, not
   when the bus message arrives on the event loop. A pad probe sets a
   `volume` element (on 32-bit floats) from the beets database when a new
@@ -343,7 +346,9 @@ at scale 2):
   no more than a few wake-ups per second for the position display, none
   while the window is hidden or minimised. (S2: 2–4% CPU, about 12
   main-thread wake-ups a second shown and minimised, 140–200 in all
-  threads; M2 and M5 work towards the budget.)
+  threads; M2 and M5 work towards the budget. M2, the engine without
+  the window: 0.7 % CPU, 61 wake-ups a second in all threads with
+  pulsesink, see `docs/decisions/0004-playback-engine.md`.)
 - **After browsing** every release in Browse and back: idle plus the
   cover cache's limit (32 MiB by default) plus at most 10 MiB, not "idle
   plus every cover", with a cold thumbnail cache too.
@@ -505,7 +510,9 @@ From here on every milestone ships with tests.
   names) over a columnar index, the recording index with version
   ranking, incremental search, the reader and writer workers with the
   write path of S3, a file watch on the database for outside changes.
-- **M2 — Playback engine.** Hardened S2: state machine, gapless, ReplayGain
+- **M2 — Playback engine.** *(done: the next source from a provider,
+  errors skipped, playbin3 1.24's failed starts worked around, see
+  `docs/decisions/0004-playback-engine.md`)* Hardened S2: state machine, gapless, ReplayGain
   modes, errors (missing file, unsupported format: skip and report),
   output device selection, events. Volume above 100% (the stream
   volume is no longer clamped to 1.0). With each track that starts, the
@@ -515,7 +522,9 @@ From here on every milestone ships with tests.
 - **M3 — Live playlist.** Entries are recordings with an optional pinned
   version; append, insert, move, remove, play next; current track; repeat
   (off/track/playlist) and shuffle (tracks, releases); the ReplayGain mode
-  decision; next track resolved ahead for gapless; persisted as M3U8.
+  decision; next track resolved ahead for gapless (the engine's
+  `Upcoming`, told of changes through `next_changed()`); persisted as
+  M3U8.
   Version choice is in the model, but defaults to "the item that was
   added" until M11.
   The queue owns the current entry, not the engine (whose `stop()`
@@ -530,7 +539,9 @@ From here on every milestone ships with tests.
   edited by hand in the beets config for now; a settings dialog would have
   to rewrite the YAML preserving comments (`ruamel.yaml` round-trip), which
   is decided when there is one.
-  Among the settings: the ReplayGain mode, source and pre-amp, and which
+  Among the settings: the audio output (a sink description, as
+  `roquette --list-outputs` prints them) and the sink's buffer sizes,
+  the ReplayGain mode, source and pre-amp, and which
   side the live playlist is on (left by default, see "UI concept"; it
   takes effect after a restart, and a changed value says so). The
   pre-amp defaults to about +4 dB: the library's ReplayGain values are
@@ -550,7 +561,11 @@ From here on every milestone ships with tests.
   as in "UI concept": Stop (and "stop after the current track", e.g. in
   the Stop button's context menu), the seek bar as a component of its
   own with room for a waveform later, and the new volume control, its
-  exact UI decided here with what M2 reports.
+  exact UI decided here with what M2 reports (`AppliedGain`: the factor,
+  the values used, the peak, whether it limited the gain, the volume at
+  which the track clips).
+  Open from M2: a track is reported as started about the sink's buffer
+  (0.4 s) before it's heard; the now-playing display can wait for it.
   A smoke test starts the window under Xvfb in CI (in the jobs for pull
   requests, `master` and weekly).
   Open from M1: the views read the text of their rows through the reader

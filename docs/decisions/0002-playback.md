@@ -5,7 +5,9 @@ SPDX-License-Identifier: MIT
 
 # 0002 — Playback: playbin3, ReplayGain from beets (spike S2)
 
-**Status:** accepted (2026-11-04).
+**Status:** accepted (2026-11-04). M2 built on it:
+`docs/decisions/0004-playback-engine.md`, which takes up the consequences
+and open issues below.
 
 ## Context
 
