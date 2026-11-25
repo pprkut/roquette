@@ -21,6 +21,10 @@ fake-library *args:
 measure *variants:
     scripts/measure.sh {{variants}}
 
+# Measure the playback engine without the window: CPU, wake-ups per thread and memory while it plays generated FLAC files (--sink, --buffer, --latency, --runs)
+measure-playback *args:
+    python3 scripts/measure-playback.py {{args}}
+
 # Measure loading, grouping and querying the beets library, and its memory as Items and as the compact index (S3)
 measure-library *args:
     BEETSDIR=${BEETSDIR:-dev/beets} python3 scripts/measure-library.py {{args}}

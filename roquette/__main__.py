@@ -78,8 +78,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=float,
         default=100,
         metavar="MS",
-        help="the size of the segments the audio sink writes, where it has them:"
-        " the sink wakes up once per segment (default: %(default)s)",
+        help="the size of the segments the audio sink writes, where it has them;"
+        " larger ones wake it less often (default: %(default)s)",
     )
     playback.add_argument(
         "--replaygain",

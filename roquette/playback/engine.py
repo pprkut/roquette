@@ -99,10 +99,10 @@ MAX_VOLUME = 10.0
 
 # The audio sink's buffer and the size of its segments, in seconds, for
 # sinks that have them (pulsesink, alsasink). GStreamer's defaults are
-# 0.2 s and 0.01 s: a segment of 10 ms wakes the sink's thread a hundred
-# times a second (docs/decisions/0002-playback.md). Track changes show
-# about a buffer early, as the sink takes the next stream once the
-# previous one is in its buffer.
+# 0.2 s and 0.01 s; with pulsesink, 0.1 s segments wake its thread 21
+# times a second instead of 31 (docs/decisions/0004-playback-engine.md).
+# Track changes show about a buffer early, as the sink takes the next
+# stream once the previous one is in its buffer.
 BUFFER_TIME = 0.4
 LATENCY_TIME = 0.1
 
