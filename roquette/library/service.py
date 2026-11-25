@@ -87,6 +87,7 @@ class LibraryService:
         self._watch: DatabaseWatch | None = None
         self._version = 0
         self._checks: set[asyncio.Task[None]] = set()
+        self._preloaded: asyncio.Future[Collection] | None = None
 
     @property
     def writable(self) -> bool:
@@ -94,32 +95,49 @@ class LibraryService:
 
     async def open(self) -> config.LibraryConfig:
         """Read the config, load the plugins and open the libraries;
-        raises `LibraryError` with a message for the user."""
+        raises `LibraryError` with a message for the user.
 
-        def open_reader() -> database.ReadLibrary:
+        The index is loaded on the reader as soon as it's open, without
+        a round trip through the event loop, which takes a while as the
+        window draws its first frames; `collection()` returns it.
+        """
+        write_library: WriteLibrary | None = None
+
+        def open_libraries() -> database.ReadLibrary:
+            nonlocal write_library
             self.settings = config.read_config(self._config_file)
             self.plugins = config.load_plugins()
-            return database.open_reader(self.settings)
+            # The write library first: opening it updates the database to
+            # the installed beets' schema, as any `beet` command would,
+            # and the read-only library refuses a database it would
+            # update. It makes its connections on the writer's thread.
+            write_library = database.open_writer(self.settings)
+            library = database.open_reader(self.settings)
+            if write_library is None:
+                self._version = data_version(library)
+            return library
 
-        await self._reader.start(open_reader)
+        opening = asyncio.ensure_future(self._reader.start(open_libraries))
+        # On the reader's thread right after the opening.
+        preloaded = asyncio.ensure_future(self._reader.run(load_collection))
+        try:
+            await opening
+        except BaseException:
+            preloaded.cancel()
+            raise
+        self._preloaded = preloaded
         assert self.settings is not None
-        settings = self.settings
-        if settings.writable:
+        if write_library is not None:
+            library = write_library
             writer: Worker[WriteLibrary] = Worker("writer", self._inbox)
+            self._writer = writer
 
-            def open_writer() -> WriteLibrary:
-                library = database.open_writer(settings)
-                assert library is not None
+            def adopt() -> WriteLibrary:
+                self._version = data_version(library)
                 return library
 
-            try:
-                await writer.start(open_writer)
-            except BaseException:
-                writer.close()
-                raise
-            self._writer = writer
-        self._version = await self._changes(data_version)
-        return settings
+            await writer.start(adopt)
+        return self.settings
 
     def close(self) -> None:
         if self._watch is not None:
@@ -127,6 +145,9 @@ class LibraryService:
             self._watch = None
         for task in self._checks:
             task.cancel()
+        if self._preloaded is not None:
+            self._preloaded.cancel()
+            self._preloaded = None
         self._reader.close()
         if self._writer is not None:
             self._writer.close()
@@ -134,6 +155,10 @@ class LibraryService:
     # Reading
 
     async def collection(self) -> Collection:
+        """The index; the first time, the one loaded while opening."""
+        preloaded, self._preloaded = self._preloaded, None
+        if preloaded is not None:
+            return await preloaded
         return await self._reader.run(load_collection)
 
     async def parse(self, text: str) -> Query:

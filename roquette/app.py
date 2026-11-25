@@ -80,7 +80,7 @@ def run(args: argparse.Namespace) -> int:
     )
     window: ui.MainWindow | None = None
     library: LibraryService | None = None
-    # GStreamer is loaded here, while the library opens on its reader.
+    # GStreamer is loaded here, once the library is shown.
     pool = ThreadPoolExecutor(1, "roquette gstreamer")
     status = 0
 
@@ -92,8 +92,6 @@ def run(args: argparse.Namespace) -> int:
         window = ui.MainWindow(compiled, options, stopwatch, inbox)
         window.show()
         stopwatch.mark("window created")
-        gstreamer = asyncio.ensure_future(inbox.run(pool, lambda: make_engine(args)))
-
         library = LibraryService(inbox, args.beets_config)
         try:
             settings = await library.open()
@@ -107,8 +105,12 @@ def run(args: argparse.Namespace) -> int:
             f"beets library {settings.database} ({mode}),"
             f" plugins: {' '.join(library.plugins) or 'none'}"
         )
+        stopwatch.mark("library opened")
         collection = await library.collection()
         window.set_library(library, collection)
+        # GStreamer is loaded once the window is filled: loading it on
+        # its thread meanwhile slowed the library's down (GIL).
+        gstreamer = asyncio.ensure_future(inbox.run(pool, lambda: make_engine(args)))
         index = collection.index
         stopwatch.mark(
             f"library loaded ({len(index.tracks)} tracks, "

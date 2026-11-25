@@ -321,3 +321,25 @@ def test_service_reads_a_replaced_database(
             service.close()
 
     run(main)
+
+
+def test_service_updates_a_writable_library_first(
+    library: Library, beets_dir: Path
+) -> None:
+    """With writes allowed, the write library updates an outdated
+    database, as `beet` would, before the read-only one opens it."""
+    writable(beets_dir)
+    connection = sqlite3.connect(library.path)
+    with connection:
+        connection.execute("DELETE FROM migrations WHERE name = 'relative_path'")
+    connection.close()
+
+    async def main(inbox: Inbox) -> int:
+        service = LibraryService(inbox)
+        try:
+            await service.open()
+            return len((await service.collection()).index.tracks)
+        finally:
+            service.close()
+
+    assert run(main) == len(library.items)
