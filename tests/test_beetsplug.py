@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import beets.library
 import mediafile
@@ -126,7 +127,7 @@ def make_audio(directory: Path, suffix: str) -> Path:
             ".ogg": "vorbisenc ! oggmux",
             ".opus": "audioresample ! opusenc ! oggmux",
         }[suffix]
-        pipeline = Gst.parse_launch(
+        pipeline: Any = Gst.parse_launch(
             f"audiotestsrc num-buffers=10 ! audioconvert ! {encoder} ! "
             f"filesink location={path}"
         )

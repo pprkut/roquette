@@ -17,7 +17,7 @@ Gst.init([])
 
 
 def test_describe() -> None:
-    sink = Gst.ElementFactory.make("fakesink")
+    sink: Any = Gst.ElementFactory.make("fakesink")
     assert describe(sink) == "fakesink"
     sink.props.sync = True
     sink.props.max_lateness = 5
@@ -25,7 +25,7 @@ def test_describe() -> None:
 
 
 def test_describe_quotes_strings() -> None:
-    sink = Gst.ElementFactory.make("filesink")
+    sink: Any = Gst.ElementFactory.make("filesink")
     location = '/tmp/a b "c" \\d'
     sink.props.location = location
     description = describe(sink)
@@ -66,7 +66,7 @@ class FakeDevice:
 
 
 def test_output_of() -> None:
-    sink = Gst.ElementFactory.make("fakesink")
+    sink: Any = Gst.ElementFactory.make("fakesink")
     sink.props.sync = True
     device = FakeDevice("Speakers", sink, True)
     assert output_of(device) == Output("Speakers", "fakesink sync=true", True)

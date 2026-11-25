@@ -149,6 +149,7 @@ def stream_key(uri: str) -> str:
 def make_sink(description: str) -> Any:
     """A sink from an element's name or a description, such as
     "pulsesink device=…" or "fakesink sync=true"."""
+    sink: Gst.Element | None
     if " " in description or "!" in description:
         sink = Gst.parse_bin_from_description(description, True)
     else:
@@ -255,24 +256,30 @@ class Engine:
     def _build(self) -> None:
         """Make the pipeline."""
         playbin = Gst.ElementFactory.make("playbin3")
-        if playbin is None:
+        if not isinstance(playbin, Gst.Pipeline):
             raise RuntimeError("GStreamer's playbin3 isn't available")
-        playbin.props.flags = _PLAY_FLAGS
+        # playbin3's own properties aren't known to the type stubs.
+        playbin.set_property("flags", _PLAY_FLAGS)
         if self._sink is not None:
-            playbin.props.audio_sink = self._sink
+            playbin.set_property("audio-sink", self._sink)
         audio_filter = Gst.parse_bin_from_description(_FILTER, True)
-        playbin.props.audio_filter = audio_filter
-        self._playbin = playbin
-        self._volume = audio_filter.get_by_name("replaygain")
-        self._gain_pad = self._volume.get_static_pad("sink")
-        self._gain_src = self._volume.get_static_pad("src")
-        self._gain_pad.add_probe(
+        playbin.set_property("audio-filter", audio_filter)
+        volume = audio_filter.get_by_name("replaygain")
+        bus = playbin.get_bus()
+        assert volume is not None and bus is not None
+        sink_pad, src_pad = volume.get_static_pad("sink"), volume.get_static_pad("src")
+        assert sink_pad is not None and src_pad is not None
+        sink_pad.add_probe(
             Gst.PadProbeType.EVENT_DOWNSTREAM | Gst.PadProbeType.EVENT_FLUSH,
             self._probe,
         )
         playbin.connect("about-to-finish", self._about_to_finish)
         playbin.connect("element-setup", self._element_setup)
-        self._bus = playbin.get_bus()
+        self._playbin: Gst.Pipeline = playbin
+        self._volume: Gst.Element = volume
+        self._gain_pad: Gst.Pad = sink_pad
+        self._gain_src: Gst.Pad = src_pad
+        self._bus: Gst.Bus = bus
 
     def _rebuild(self) -> None:
         """Replace the pipeline after a failed state change.
@@ -286,7 +293,7 @@ class Engine:
         self._playbin.set_state(Gst.State.NULL)
         self._unwatch_bus()
         # The sink goes to the new pipeline.
-        self._playbin.props.audio_sink = None
+        self._playbin.set_property("audio-sink", None)
         self._build()
         self.volume = volume
         if self._loop is not None:
@@ -435,11 +442,11 @@ class Engine:
     def volume(self) -> float:
         """Linear, 0 to `MAX_VOLUME` (the sink's stream volume where it has
         one); above 1 it amplifies."""
-        return float(self._playbin.props.volume)
+        return float(self._playbin.get_property("volume"))
 
     @volume.setter
     def volume(self, value: float) -> None:
-        self._playbin.props.volume = min(max(value, 0.0), MAX_VOLUME)
+        self._playbin.set_property("volume", min(max(value, 0.0), MAX_VOLUME))
 
     def set_sink(self, sink: Any) -> None:
         """Play through another sink: an element, a description (see
@@ -459,7 +466,7 @@ class Engine:
         # closes the device.
         self._playbin.set_state(Gst.State.NULL)
         self._sink = sink
-        self._playbin.props.audio_sink = sink
+        self._playbin.set_property("audio-sink", sink)
         if reopen is None:
             return
         entry, position = reopen
@@ -509,7 +516,7 @@ class Engine:
             uri = self._enqueue(source, restart)
         self._target = State.PAUSED if paused else State.PLAYING
         self._seek_to = position if position > 0 else None
-        self._playbin.props.uri = uri
+        self._playbin.set_property("uri", uri)
         # A seek needs the pipeline paused first.
         prerolled = paused or self._seek_to is not None
         self._playbin.set_state(Gst.State.PAUSED if prerolled else Gst.State.PLAYING)
@@ -563,7 +570,7 @@ class Engine:
             self._exhausted = False
         self._stalled = False
         self._cancel_tail()
-        self._playbin.props.uri = uri
+        self._playbin.set_property("uri", uri)
         return True
 
     def _switch(self, after: Source | None) -> None:
@@ -889,7 +896,7 @@ class Engine:
                 self._exhausted = True
                 return
             uri = self._enqueue(candidate)
-        playbin.props.uri = uri
+        playbin.set_property("uri", uri)
 
     def _element_setup(self, playbin: Any, element: Any) -> None:
         configure_sink(element, self.buffer_time, self.latency_time)
@@ -979,7 +986,7 @@ class Engine:
             self._awaiting = None
             self._set_gain(entry, applied)
             return Gst.PadProbeReturn.OK
-        self._volume.props.volume = applied.factor
+        self._volume.set_property("volume", applied.factor)
         with self._lock:
             if entry is not None:
                 entry.gain = applied
@@ -1016,7 +1023,7 @@ class Engine:
         Later (from the tags), the bus may have said the stream is audible
         already: `announce` tells the event loop.
         """
-        self._volume.props.volume = applied.factor
+        self._volume.set_property("volume", applied.factor)
         if entry is None:
             return
         with self._lock:
@@ -1041,9 +1048,9 @@ def configure_sink(
     ):
         return False
     if buffer_time is not None:
-        element.props.buffer_time = round(buffer_time * 1_000_000)
+        element.set_property("buffer-time", round(buffer_time * 1_000_000))
     if latency_time is not None:
-        element.props.latency_time = round(latency_time * 1_000_000)
+        element.set_property("latency-time", round(latency_time * 1_000_000))
     return True
 
 

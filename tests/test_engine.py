@@ -576,7 +576,7 @@ def test_a_start_that_never_happens(
 def test_configure_sink() -> None:
     from gi.repository import Gst
 
-    sink = Gst.ElementFactory.make("pulsesink")
+    sink: Any = Gst.ElementFactory.make("pulsesink")
     if sink is None:
         pytest.skip("no pulsesink")
     assert configure_sink(sink, 0.4, 0.1)

@@ -57,7 +57,7 @@ def make_flac(
 ) -> Audio:
     rnd = random.Random(seed)
     samples = array("h", (rnd.randint(-8000, 8000) for _ in range(frames * CHANNELS)))
-    pipeline = Gst.parse_launch(
+    pipeline: Any = Gst.parse_launch(
         "appsrc name=src format=time"
         f" caps=audio/x-raw,format=S16LE,rate={RATE},channels={CHANNELS},"
         "layout=interleaved ! audioconvert ! flacenc name=encoder ! filesink name=out"
@@ -95,13 +95,14 @@ class Capture:
     with a sound card."""
 
     def __init__(self, *, sync: bool = False) -> None:
-        self.sink = Gst.parse_bin_from_description(
+        self.sink: Any = Gst.parse_bin_from_description(
             "audioconvert ! audio/x-raw,format=F32LE ! appsink name=out"
             f" sync={'true' if sync else 'false'} emit-signals=true",
             True,
         )
         self.data = bytearray()
-        self.sink.get_by_name("out").connect("new-sample", self._sample)
+        appsink: Any = self.sink.get_by_name("out")
+        appsink.connect("new-sample", self._sample)
 
     def _sample(self, appsink: Any) -> Any:
         buffer = appsink.emit("pull-sample").get_buffer()

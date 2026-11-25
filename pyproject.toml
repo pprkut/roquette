@@ -57,6 +57,8 @@ test = [
 ]
 lint = [
     "mypy==2.4.1",
+    # Types for PyGObject's GStreamer bindings (LGPL-2.1-or-later).
+    "pygobject-stubs==2.20.0",
     "ruff==0.17.3",
 ]
 audit = [
@@ -128,8 +130,9 @@ files = ["roquette", "beetsplug", "tests"]
 # beetsplug is a namespace package.
 explicit_package_bases = true
 
-# PyGObject has no type information of its own; M2 adds pygobject-stubs
-# (docs/decisions/0002-playback.md).
+# PyGObject has no type information of its own: pygobject-stubs (the lint
+# group) has it. Without them (a development machine without the
+# package), GStreamer's calls are unchecked.
 [[tool.mypy.overrides]]
 module = ["gi", "gi.*"]
 ignore_missing_imports = true
