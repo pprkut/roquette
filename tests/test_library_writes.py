@@ -172,3 +172,23 @@ def test_playlist_query_misses_relative_paths(tmp_path: Path) -> None:
         config.read(user=False)
     if found:
         pytest.fail("fixed in beets: `playlist:` queries work again")
+
+
+def test_write_library_updates_an_outdated_database(tmp_path: Path) -> None:
+    """beets backs the database up before updating it, from within a
+    transaction; with the write lock taken, the backup never finished."""
+    path, item_id = make_library(tmp_path)
+    connection = sqlite3.connect(path)
+    with connection:
+        connection.execute("DELETE FROM migrations WHERE name = 'relative_path'")
+    connection.close()
+    opened: list[writes.WriteLibrary] = []
+    thread = threading.Thread(
+        target=lambda: opened.append(writes.WriteLibrary(str(path), str(tmp_path))),
+        daemon=True,
+    )
+    thread.start()
+    thread.join(10)
+    assert opened, "opening the library hung"
+    writes.store_fields(opened[0], item_id, lambda item: {"play_count": 1})
+    assert list(tmp_path.glob("library.db-before-*.bak"))

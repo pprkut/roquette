@@ -79,13 +79,21 @@ class WriteLibrary(beets.library.Library):
     """The beets library for roquette's writes."""
 
     def __init__(self, path: str, directory: str, timeout: float = 0.2) -> None:
+        # While beets opens it, its own transactions: updating the
+        # database to its schema, beets backs it up from within one, and
+        # SQLite's backup can't read a database its connection holds the
+        # write lock of (Python's `backup()` then retries for ever).
+        self._opened = False
         super().__init__(path, directory, set_music_dir=False)
+        self._opened = True
         # Connections are made per thread when first used; the writer
         # thread's gets this timeout.
         self.timeout = timeout
         self._close()
 
     def transaction(self) -> Transaction:
+        if not self._opened:
+            return super().transaction()
         return SafeTransaction(self)
 
 
