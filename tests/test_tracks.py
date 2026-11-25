@@ -8,7 +8,7 @@ from typing import Any
 
 from roquette.library.index import ReleaseText, TrackText
 from roquette.modules.covers import CoverGrid, cover_text
-from roquette.modules.rows import RowText
+from roquette.modules.rows import BLOCK, RowText
 from roquette.modules.tracks import (
     EMPTY_ROW,
     TrackList,
@@ -81,8 +81,8 @@ def test_rows_are_read_when_shown() -> None:
 
 
 def test_rows_are_read_ahead_in_blocks() -> None:
-    """Scrolling through 1,000 rows reads them a block of 128 at a time,
-    before they're shown."""
+    """Scrolling through 1,000 rows reads them a block at a time, before
+    they're shown."""
 
     async def main() -> None:
         asked: list[list[int]] = []
@@ -101,9 +101,12 @@ def test_rows_are_read_ahead_in_blocks() -> None:
             await asyncio.sleep(0)
         assert empty == 1
         assert [(ids[0], ids[-1]) for ids in asked] == [
-            (0, 255),
-            *((start, min(start + 127, 999)) for start in range(256, 1000, 128)),
-        ][: len(asked)]
+            (0, 2 * BLOCK - 1),
+            *(
+                (start, min(start + BLOCK - 1, 999))
+                for start in range(2 * BLOCK, 1000, BLOCK)
+            ),
+        ]
         assert sum(len(ids) for ids in asked) == 1000
         # Back up again: no reads.
         reads = len(asked)

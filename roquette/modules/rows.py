@@ -158,8 +158,11 @@ class RowText[T]:
             self._stale.discard(dropped)
 
 
-# Rows read together: about two screens of the track list.
-BLOCK = 128
+# Rows read together: half a screen of the track list. Larger blocks
+# mean fewer reads, but each takes the GIL from the main thread for
+# longer (Python's sqlite3 hands it over for every row): with 128 rows,
+# scrolling ten times the library fell from 55 to 44 fps.
+BLOCK = 32
 
 
 class Ahead[T]:
