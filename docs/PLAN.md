@@ -122,25 +122,66 @@ Initial picks, validated by the spikes in phase 1; pivots are recorded in
 ## UI concept
 
 ```
-┌──────────┬──────────────────────────────────┬───────────────┐
-│ Nav      │                                  │ Live playlist │
-│          │   Main view: the active module   │               │
-│ Browse   │                                  │ ▣ Album       │
-│ Tree     │                                  │   Artist·Year │
-│ Related  │                                  │   1. Title ★★ │
-│ Lyrics   │                                  │   2. Title  ▾ │
-│ Wiki     │                                  │ ▣ Album       │
-│ Playlists│                                  │   …           │
-│ Stats    │                                  │               │
-├──────────┴──────────────────────────────────┴───────────────┤
-│ ▣ Now playing · ⏮ ⏯ ⏭ · ━━━━━━━●━━━━━━ 2:13 / 4:51 · 🔊    │
+┌───────────────┬──────────────────────────────────┬──────────┐
+│ Live playlist │                                  │ Nav      │
+│               │   Main view: the active module   │          │
+│ ▣ Album       │                                  │ Browse   │
+│   Artist·Year │                                  │ Tree     │
+│   1. Title ★★ │                                  │ Related  │
+│   2. Title  ▾ │                                  │ Lyrics   │
+│ ▣ Album       │                                  │ Wiki     │
+│   …           │                                  │ Playlists│
+│               │                                  │ Stats    │
+├───────────────┴──────────────────────────────────┴──────────┤
+│ ▣ Now playing · ⏮ ⏹ ⏯ ⏭ · ━━━━━━━●━━━━━━ 2:13 / 4:51 · 🔊  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 - **Transport bar** at the bottom: now playing (cover, title, artist,
   rating), play controls, seek bar, volume.
+  - The controls include **Stop**, and later "stop after the current
+    track" (see M3 for what they mean).
+  - The **seek bar** is a component of its own with room to grow: it's
+    meant to show the track's waveform eventually (see "Waveform"), so
+    the layout gives it the height and width a waveform needs, rather
+    than the space left over by everything else.
+  - The **volume control** replaces a plain 0–100 slider: it goes above
+    100% (the PipeWire/Pulse stream volume and MPRIS both allow it) and
+    shows the ReplayGain applied to the playing track, e.g. the
+    effective level, where the track would start to clip, the mode and
+    whether the peak limited the gain. The exact UI is decided in M5,
+    with what the engine can report (M2).
 - **Live playlist** on one side: the queue that is playing. Which side is a
-  setting; navigation is always opposite.
+  setting (M4); navigation is always opposite. The default is the
+  playlist on the left, the main view in the middle and navigation on
+  the right. A change of the side takes effect after a restart (Slint
+  can't reorder a layout's children at run time), and the settings say
+  so when it's changed.
+
+### Waveform
+
+The seek bar is meant to show the waveform of the playing track, the
+progress moving along it. The idea is to keep the waveform in beets: a
+beets plugin (the roquette plugin, or one of its own) computes it on
+import, with a `beet` command for the existing library, and stores it as
+a flexible attribute. Open, to be discussed before it's built:
+
+- whether that is practical: a few KB per track in the beets database
+  (tens of MB for the library), import time (decoding every file once,
+  about 1–2 s of a core per track for FLAC), and the alternative of a
+  regenerable cache in `$XDG_CACHE_HOME/roquette/`, computed when a track
+  is queued;
+- the resolution and format of the data;
+- drawing: rendered once per track at the bar's size as an image, two
+  colours for played and to come, progress as a clip; and how often the
+  progress moves, against the "Playing" budget (the position display
+  ticks once a second; a waveform wants about one step per pixel);
+- Quod Libet has (had) a waveform seek bar plugin, as a reference for the
+  interface and the computation.
+
+The rest of the player doesn't depend on it, so it's a module-sized
+milestone after the main player (see "Phase 5"), but the seek bar is
+built for it from M5 on.
 - **Navigation** on the other side, listing the modules.
 - **Main view**: the active module.
 
@@ -466,13 +507,22 @@ From here on every milestone ships with tests.
   write path of S3, a file watch on the database for outside changes.
 - **M2 — Playback engine.** Hardened S2: state machine, gapless, ReplayGain
   modes, errors (missing file, unsupported format: skip and report),
-  output device selection, events.
+  output device selection, events. Volume above 100% (the stream
+  volume is no longer clamped to 1.0). With each track that starts, the
+  engine reports the ReplayGain it applies: the factor, the mode, the
+  peak and whether the peak limited the gain, for the volume control
+  (M5).
 - **M3 — Live playlist.** Entries are recordings with an optional pinned
   version; append, insert, move, remove, play next; current track; repeat
   (off/track/playlist) and shuffle (tracks, releases); the ReplayGain mode
   decision; next track resolved ahead for gapless; persisted as M3U8.
   Version choice is in the model, but defaults to "the item that was
   added" until M11.
+  The queue owns the current entry, not the engine (whose `stop()`
+  forgets it): Stop keeps the current entry and goes back to its start,
+  Play then plays it from there. "Stop after the current track" is a
+  flag on the queue that stops at the next track boundary instead of
+  going on (cleared once it has stopped).
 - **M4 — Settings and state.** The `roquette:` config section with defaults
   from the beets plugin and validation, the UI state file. The Slint
   renderer is a setting (FemtoVG by default, see
@@ -480,11 +530,27 @@ From here on every milestone ships with tests.
   edited by hand in the beets config for now; a settings dialog would have
   to rewrite the YAML preserving comments (`ruamel.yaml` round-trip), which
   is decided when there is one.
+  Among the settings: the ReplayGain mode, source and pre-amp, and which
+  side the live playlist is on (left by default, see "UI concept"; it
+  takes effect after a restart, and a changed value says so). The
+  pre-amp defaults to about +4 dB: the library's ReplayGain values are
+  for beets' default 89 dB reference (about −18 LUFS, an average track
+  gain of −7.6 dB), which plays far quieter than other sources, which
+  are normalised to about −14 LUFS or not at all. The cost: the peaks
+  limit about 1,030 of 11,828 tracks at +4 dB (94 at 0 dB, about 2,290
+  at +6 dB), which then play quieter than the rest; a limiter instead
+  is in the backlog. The state file keeps the volume, 100% the first
+  time (S2's default of 80 on the cubic curve is another −5.8 dB).
 
 ### Phase 3 — Minimum viable player
 
 - **M5 — Main window.** The layout, the module host and module API
   (context, actions, lazy loading), the transport bar wired to the engine.
+  The playlist on the left by default (M4's setting). The transport bar
+  as in "UI concept": Stop (and "stop after the current track", e.g. in
+  the Stop button's context menu), the seek bar as a component of its
+  own with room for a waveform later, and the new volume control, its
+  exact UI decided here with what M2 reports.
   A smoke test starts the window under Xvfb in CI (in the jobs for pull
   requests, `master` and weekly).
   Open from M1: the views read the text of their rows through the reader
@@ -565,6 +631,8 @@ One milestone each, in an order decided at the time:
 - **Statistics** from the beets fields and ListenBrainz.
 - **Credits**: composer, lyricist, arranger, remixer, performers from
   MusicBrainz.
+- **Waveform** in the seek bar (see "Waveform"), starting with the
+  discussion there of where the data comes from.
 
 ### Backlog
 
@@ -582,6 +650,10 @@ One milestone each, in an order decided at the time:
 - `FMPS_RATING` support in mediafile itself instead of the roquette
   plugin's field mapping.
 - Equalizer, crossfade (off by default; gapless takes precedence).
+- A limiter for ReplayGain with a pre-amp, so the tracks the peaks limit
+  (see M4) aren't quieter than the rest; off by default, with a
+  look-ahead so it doesn't change passages that wouldn't clip (S2
+  rejected `rglimiter`'s soft knee for that).
 
 ## Conventions
 
