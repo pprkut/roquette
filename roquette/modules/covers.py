@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable
 from typing import NamedTuple
 
 from roquette.library.index import ReleaseText
-from roquette.modules.rows import Load, RowText
+from roquette.modules.rows import Ahead, Load, RowText
 
 
 class CoverText(NamedTuple):
@@ -39,6 +39,7 @@ class CoverGrid:
         self._ids = ids
         self._scale = scale
         self.text: RowText[ReleaseText] = RowText(load, self._text_loaded)
+        self._ahead = Ahead(self.text)
         self._cells_loaded = cells_loaded
         self._waiting: dict[int, set[int]] = {}
         self.current = -1
@@ -54,6 +55,7 @@ class CoverGrid:
         is called with the cells to show again."""
         release_id = self.id(index)
         text = self.text.get(release_id)
+        self._ahead.shown(index, len(self), self.id)
         if text is None:
             self._waiting.setdefault(release_id, set()).add(index)
         return text
@@ -61,6 +63,7 @@ class CoverGrid:
     def set_ids(self, ids: array[int]) -> None:
         self._ids = ids
         self._waiting.clear()
+        self._ahead.reset()
         self.current = -1
 
     def navigate(self, key: str, columns: int) -> int:

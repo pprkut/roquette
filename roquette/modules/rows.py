@@ -12,6 +12,13 @@ rows. Text is kept for the most recently asked-for ids only, a few
 screens' worth. An id the reader doesn't find (a track deleted by
 another program, until the library reloads) isn't asked for again
 before `clear()`.
+
+Reading only the rows shown took a read per frame while scrolling, a
+round trip to the reader whose GIL hand-overs cost the frame rate (44
+instead of 60 fps on the desktop) and showed the rows coming into view
+empty. `Ahead` reads the text in blocks of rows instead: the block of a
+row shown and the blocks on either side, so that the rows have their
+text before they come into view.
 """
 
 import asyncio
@@ -56,6 +63,19 @@ class RowText[T]:
             if self._flush is None:
                 self._flush = asyncio.get_running_loop().call_soon(self._read)
         return None
+
+    def want(self, ids: Iterable[int]) -> None:
+        """Read the text of `ids` ahead, unless it's there or being read."""
+        text = self._text
+        wanted = self._wanted
+        for item_id in ids:
+            if item_id in text:
+                # Kept as if shown, so it isn't dropped before it is.
+                text.move_to_end(item_id)
+            elif item_id not in self._loading and item_id not in self._missing:
+                wanted.add(item_id)
+        if wanted and self._flush is None:
+            self._flush = asyncio.get_running_loop().call_soon(self._read)
 
     def clear(self) -> None:
         """Forget all text (the library changed)."""
@@ -104,3 +124,31 @@ class RowText[T]:
             self._text[item_id] = text
         while len(self._text) > self._limit:
             self._text.popitem(last=False)
+
+
+# Rows read together: about two screens of the track list.
+BLOCK = 128
+
+
+class Ahead[T]:
+    """Reads the text of the rows around the ones a view shows, a block
+    at a time; the view's rows are given by `id_of`."""
+
+    def __init__(self, text: RowText[T], block: int = BLOCK) -> None:
+        self._text = text
+        self._block_size = block
+        self._block = -1
+
+    def shown(self, row: int, count: int, id_of: Callable[[int], int]) -> None:
+        """Row `row` of `count` is shown."""
+        block = row // self._block_size
+        if block == self._block:
+            return
+        self._block = block
+        start = max(0, (block - 1) * self._block_size)
+        stop = min(count, (block + 2) * self._block_size)
+        self._text.want(id_of(r) for r in range(start, stop))
+
+    def reset(self) -> None:
+        """The rows changed."""
+        self._block = -1

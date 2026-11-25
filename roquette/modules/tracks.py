@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable
 from typing import NamedTuple
 
 from roquette.library.index import TrackText
-from roquette.modules.rows import Load, RowText
+from roquette.modules.rows import Ahead, Load, RowText
 
 
 class TrackRowText(NamedTuple):
@@ -74,6 +74,7 @@ class TrackList:
         self._ids = ids
         self._scale = scale
         self.text: RowText[TrackText] = RowText(load, self._text_loaded)
+        self._ahead = Ahead(self.text)
         self._rows_loaded = rows_loaded
         # Rows shown without their text, by id.
         self._waiting: dict[int, set[int]] = {}
@@ -92,6 +93,7 @@ class TrackList:
         called with the rows to show again."""
         item_id = self.id(row)
         text = self.text.get(item_id)
+        self._ahead.shown(row, len(self), self.id)
         if text is None:
             self._waiting.setdefault(item_id, set()).add(row)
             return EMPTY_ROW
@@ -113,6 +115,7 @@ class TrackList:
             ids = array(ids.typecode, reversed(ids))
         self._ids = ids
         self._waiting.clear()
+        self._ahead.reset()
         self.current = -1
 
     def sort(self, column: int) -> str:

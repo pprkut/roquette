@@ -64,17 +64,53 @@ def test_rows_are_read_when_shown() -> None:
         loaded: list[list[int]] = []
         tracks = TrackList(array("q", [1, 2, 3]), reader, loaded.append)
         assert len(tracks) == 3
-        # Empty until read; the rows asked for in one turn are read together.
+        # Empty until read; the rows asked for in one turn are read
+        # together, with the rows around them.
         assert tracks.row(0) == EMPTY_ROW
         assert tracks.row(2) == EMPTY_ROW
         assert tracks.track(2) is None
         await asyncio.sleep(0.01)
-        assert reader.asked == [[1, 3]]
+        assert reader.asked == [[1, 2, 3]]
         assert loaded == [[0, 2]]
         assert tracks.row(0).title == "Speak to Me"
         assert tracks.row(2).title == "avril 14th"
-        assert reader.asked == [[1, 3]]
+        assert reader.asked == [[1, 2, 3]]
         tracks.close()
+
+    run(main)
+
+
+def test_rows_are_read_ahead_in_blocks() -> None:
+    """Scrolling through 1,000 rows reads them a block of 128 at a time,
+    before they're shown."""
+
+    async def main() -> None:
+        asked: list[list[int]] = []
+
+        async def load(ids: list[int]) -> dict[int, TrackText]:
+            asked.append(ids)
+            return {i: TRACKS[1] for i in ids}
+
+        tracks = TrackList(array("q", range(1000)), load, lambda rows: None)
+        empty = 0
+        for row in range(1000):
+            if tracks.row(row) == EMPTY_ROW:
+                empty += 1
+            # A frame: the reads asked for come back.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        assert empty == 1
+        assert [(ids[0], ids[-1]) for ids in asked] == [
+            (0, 255),
+            *((start, min(start + 127, 999)) for start in range(256, 1000, 128)),
+        ][: len(asked)]
+        assert sum(len(ids) for ids in asked) == 1000
+        # Back up again: no reads.
+        reads = len(asked)
+        for row in range(999, 800, -1):
+            assert tracks.row(row) != EMPTY_ROW
+        await asyncio.sleep(0)
+        assert len(asked) == reads
 
     run(main)
 
