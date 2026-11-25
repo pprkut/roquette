@@ -28,6 +28,8 @@ def test_defaults() -> None:
     assert args.replaygain == "auto"
     assert args.replaygain_source == "beets"
     assert args.preamp == 0.0
+    assert not args.list_outputs
+    assert (args.audio_buffer, args.audio_latency) == (400, 100)
 
 
 def test_beets_config() -> None:
@@ -47,6 +49,10 @@ def test_playback() -> None:
             "tags",
             "--preamp",
             "-3",
+            "--audio-buffer",
+            "200",
+            "--audio-latency",
+            "10",
         ]
     )
     assert args.play == "album:Foo"
@@ -54,6 +60,29 @@ def test_playback() -> None:
     assert args.replaygain == "track"
     assert args.replaygain_source == "tags"
     assert args.preamp == -3.0
+    assert (args.audio_buffer, args.audio_latency) == (200, 10)
+
+
+def test_list_outputs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from roquette.playback import outputs
+
+    found = [
+        outputs.Output("Speakers", "pulsesink device=speakers", True),
+        outputs.Output("USB DAC", 'pulsesink device="usb dac"'),
+    ]
+    monkeypatch.setattr(outputs, "list_outputs", lambda: found)
+    assert main(["--list-outputs"]) == 0
+    assert capsys.readouterr().out == (
+        "Speakers (default)\n"
+        "    --audio-sink 'pulsesink device=speakers'\n"
+        "USB DAC\n"
+        "    --audio-sink 'pulsesink device=\"usb dac\"'\n"
+    )
+    monkeypatch.setattr(outputs, "list_outputs", lambda: [])
+    assert main(["--list-outputs"]) == 0
+    assert capsys.readouterr().out == "No audio outputs found.\n"
 
 
 def test_measuring() -> None:

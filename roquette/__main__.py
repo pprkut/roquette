@@ -57,8 +57,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     playback.add_argument(
         "--audio-sink",
-        metavar="ELEMENT",
-        help="the GStreamer audio sink (default: autoaudiosink's choice)",
+        metavar="SINK",
+        help="the GStreamer audio sink: an element, or an element with properties"
+        " as --list-outputs shows them (default: autoaudiosink's choice)",
+    )
+    playback.add_argument(
+        "--list-outputs",
+        action="store_true",
+        help="list the audio outputs, each with its --audio-sink, and quit",
+    )
+    playback.add_argument(
+        "--audio-buffer",
+        type=float,
+        default=400,
+        metavar="MS",
+        help="the audio sink's buffer, where it has one (default: %(default)s)",
+    )
+    playback.add_argument(
+        "--audio-latency",
+        type=float,
+        default=100,
+        metavar="MS",
+        help="the size of the segments the audio sink writes, where it has them:"
+        " the sink wakes up once per segment (default: %(default)s)",
     )
     playback.add_argument(
         "--replaygain",

@@ -6,6 +6,7 @@
 import argparse
 import asyncio
 import os
+import shlex
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -28,10 +29,29 @@ def make_engine(args: argparse.Namespace) -> "Engine":
     """Load GStreamer and create the engine; blocking, for a worker thread."""
     from roquette.playback.engine import Engine
 
-    return Engine(args.audio_sink, preamp=args.preamp)
+    return Engine(
+        args.audio_sink,
+        preamp=args.preamp,
+        buffer_time=args.audio_buffer / 1000,
+        latency_time=args.audio_latency / 1000,
+    )
+
+
+def list_outputs() -> int:
+    from roquette.playback.outputs import list_outputs
+
+    outputs = list_outputs()
+    if not outputs:
+        print("No audio outputs found.")
+    for output in outputs:
+        default = " (default)" if output.default else ""
+        print(f"{output.name}{default}\n    --audio-sink {shlex.quote(output.sink)}")
+    return 0
 
 
 def run(args: argparse.Namespace) -> int:
+    if args.list_outputs:
+        return list_outputs()
     stopwatch = Stopwatch(args.measure)
     # The renderer of docs/decisions/0001-ui-toolkit.md; SLINT_BACKEND
     # picks another until M4 makes it a setting.
