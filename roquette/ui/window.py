@@ -192,29 +192,41 @@ class MainWindow:
         self.set_collection(collection)
 
     def set_collection(self, collection: Collection) -> None:
-        """The library's index, again after the library changed."""
+        """The library's index, again after the library changed.
+
+        The views show their text from before until it's read again, so
+        that they don't flash empty; the track list keeps its rows until
+        they're sorted again, and the cover grid its covers if the
+        releases are the same.
+        """
         assert self.track_list is not None and self.cover_grid is not None
+        first = self.collection is None
         self.collection = collection
         index = collection.index
-        self.track_list.text.clear()
-        self.track_list.set_ids(index.tracks.ids)
-        self._track_order = (0, True)
-        self.window.track_current = -1
-        self.track_model.set_tracks(self.track_list)
-        if self.track_list.sort_column:
-            self._sort_tracks(
-                sort_query(self.track_list.sort_column, self.track_list.ascending)
-            )
-        self.cover_grid.text.clear()
-        self.cover_grid.set_ids(index.releases.ids)
-        self.window.cover_current = -1
-        if self.cover_model is not None:
-            # Covers are cached by cell.
-            self.cover_model.close()
-            self.cover_model = None
+        tracks = self.track_list
+        tracks.text.refresh()
+        if tracks.sort_column and not first:
+            self._sort_tracks(sort_query(tracks.sort_column, tracks.ascending))
+        else:
+            tracks.set_ids(index.tracks.ids)
+            self._track_order = (tracks.sort_column, tracks.ascending)
+            self.window.track_current = -1
+            self.track_model.set_tracks(tracks)
+        grid = self.cover_grid
+        grid.text.refresh()
+        if grid.ids != index.releases.ids:
+            grid.set_ids(index.releases.ids)
+            self.window.cover_current = -1
+            if self.cover_model is not None:
+                # Covers are cached by cell.
+                self.cover_model.close()
+                self.cover_model = None
+        elif self.cover_model is not None:
+            self.cover_model.reset(self.cover_model.row_count())
         scale = self.options.scale
-        tracks, releases = len(index.tracks) * scale, len(index.releases) * scale
-        self.window.status = f"{tracks:,} tracks\n{releases:,} releases"
+        tracks_count = len(index.tracks) * scale
+        releases_count = len(index.releases) * scale
+        self.window.status = f"{tracks_count:,} tracks\n{releases_count:,} releases"
         self._module_selected(self.window.module)
 
     def _spawn(self, coroutine: Coroutine[Any, Any, Any]) -> None:

@@ -11,7 +11,9 @@ together, and the view is told which ids arrived so it updates those
 rows. Text is kept for the most recently asked-for ids only, a few
 screens' worth. An id the reader doesn't find (a track deleted by
 another program, until the library reloads) isn't asked for again
-before `clear()`.
+before `clear()`. When the library changed, `refresh()` reads the text
+again, and shows what it had until the new text arrives, so that the
+views don't flash empty.
 
 Reading only the rows shown took a read per frame while scrolling, a
 round trip to the reader whose GIL hand-overs cost the frame rate (44
@@ -42,6 +44,8 @@ class RowText[T]:
         self._wanted: set[int] = set()
         self._loading: set[int] = set()
         self._missing: set[int] = set()
+        # Text from before the library changed, shown until it's read again.
+        self._stale: set[int] = set()
         self._flush: asyncio.Handle | None = None
         self._tasks: set[asyncio.Task[None]] = set()
         # Text read before a `clear()` is dropped when it arrives.
@@ -53,34 +57,55 @@ class RowText[T]:
         return len(self._text)
 
     def get(self, item_id: int) -> T | None:
-        """The text, or None while it's read."""
+        """The text, or None while it's read. Text from before a
+        `refresh()` is returned while it's read again (see `is_stale`)."""
         text = self._text.get(item_id)
         if text is not None:
             self._text.move_to_end(item_id)
-            return text
-        if item_id not in self._loading and item_id not in self._missing:
-            self._wanted.add(item_id)
-            if self._flush is None:
-                self._flush = asyncio.get_running_loop().call_soon(self._read)
-        return None
+            if item_id not in self._stale or item_id in self._loading:
+                return text
+        elif item_id in self._loading or item_id in self._missing:
+            return None
+        self._wanted.add(item_id)
+        if self._flush is None:
+            self._flush = asyncio.get_running_loop().call_soon(self._read)
+        return text
+
+    def is_stale(self, item_id: int) -> bool:
+        """Whether the text is from before the library changed, and so
+        will arrive again."""
+        return item_id in self._stale
 
     def want(self, ids: Iterable[int]) -> None:
         """Read the text of `ids` ahead, unless it's there or being read."""
         text = self._text
         wanted = self._wanted
+        stale = self._stale
         for item_id in ids:
             if item_id in text:
                 # Kept as if shown, so it isn't dropped before it is.
                 text.move_to_end(item_id)
-            elif item_id not in self._loading and item_id not in self._missing:
+                if item_id not in stale:
+                    continue
+            if item_id not in self._loading and item_id not in self._missing:
                 wanted.add(item_id)
         if wanted and self._flush is None:
             self._flush = asyncio.get_running_loop().call_soon(self._read)
 
     def clear(self) -> None:
-        """Forget all text (the library changed)."""
+        """Forget all text."""
         self._generation += 1
         self._text.clear()
+        self._stale.clear()
+        self._wanted.clear()
+        self._loading.clear()
+        self._missing.clear()
+
+    def refresh(self) -> None:
+        """The library changed: read the text again when it's asked for,
+        and return the text from before until then."""
+        self._generation += 1
+        self._stale = set(self._text)
         self._wanted.clear()
         self._loading.clear()
         self._missing.clear()
@@ -116,14 +141,21 @@ class RowText[T]:
         if generation != self._generation:
             return
         self._store(found.items())
-        self._missing.update(i for i in ids if i not in found)
+        for item_id in ids:
+            if item_id not in found:
+                self._missing.add(item_id)
+                # Deleted meanwhile: its text from before is no use.
+                self._text.pop(item_id, None)
+                self._stale.discard(item_id)
         self._loaded([i for i in ids if i in found])
 
     def _store(self, found: Iterable[tuple[int, T]]) -> None:
         for item_id, text in found:
             self._text[item_id] = text
+            self._stale.discard(item_id)
         while len(self._text) > self._limit:
-            self._text.popitem(last=False)
+            dropped, _ = self._text.popitem(last=False)
+            self._stale.discard(dropped)
 
 
 # Rows read together: about two screens of the track list.

@@ -47,16 +47,22 @@ class CoverGrid:
     def __len__(self) -> int:
         return len(self._ids) * self._scale
 
+    @property
+    def ids(self) -> array[int]:
+        """The releases, in the grid's order."""
+        return self._ids
+
     def id(self, index: int) -> int:
         return self._ids[index % len(self._ids)]
 
     def release(self, index: int) -> ReleaseText | None:
-        """The cell's release; None until it's read, then `cells_loaded`
-        is called with the cells to show again."""
+        """The cell's release; None until it's read (or as it was before
+        the library changed), then `cells_loaded` is called with the
+        cells to show again."""
         release_id = self.id(index)
         text = self.text.get(release_id)
         self._ahead.shown(index, len(self), self.id)
-        if text is None:
+        if text is None or self.text.is_stale(release_id):
             self._waiting.setdefault(release_id, set()).add(index)
         return text
 

@@ -242,3 +242,37 @@ def test_cover_grid() -> None:
 
     run(main)
     assert cover_text(release) == ("Drukqs", "Aphex Twin", "2001")
+
+
+def test_refresh_shows_the_old_text_until_the_new_arrives() -> None:
+    """After the library changed, rows aren't shown empty."""
+
+    async def main() -> None:
+        current = dict(TRACKS)
+
+        async def load(ids: list[int]) -> dict[int, TrackText]:
+            await asyncio.sleep(0)
+            return {i: current[i] for i in ids if i in current}
+
+        loaded: list[list[int]] = []
+        tracks = TrackList(array("q", [1, 2, 3]), load, loaded.append)
+        tracks.row(0)
+        await asyncio.sleep(0.01)
+        assert tracks.row(0).title == "Speak to Me"
+        loaded.clear()
+
+        current[1] = current[1]._replace(title="Speak to Me (remastered)")
+        del current[3]
+        tracks.text.refresh()
+        tracks.set_ids(array("q", [1, 2, 3]))
+        # The old text, while the new one is read.
+        assert tracks.row(0).title == "Speak to Me"
+        assert tracks.text.is_stale(1)
+        await asyncio.sleep(0.01)
+        assert loaded == [[0]]
+        assert tracks.row(0).title == "Speak to Me (remastered)"
+        assert not tracks.text.is_stale(1)
+        # A track deleted meanwhile loses its old text.
+        assert tracks.row(2) == EMPTY_ROW
+
+    run(main)

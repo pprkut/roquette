@@ -89,15 +89,15 @@ class TrackList:
         return self._ids[row % len(self._ids)]
 
     def row(self, row: int) -> TrackRowText:
-        """The row's text; empty until it's read, then `rows_loaded` is
-        called with the rows to show again."""
+        """The row's text; empty until it's read (or as it was before the
+        library changed), then `rows_loaded` is called with the rows to
+        show again."""
         item_id = self.id(row)
         text = self.text.get(item_id)
         self._ahead.shown(row, len(self), self.id)
-        if text is None:
+        if text is None or self.text.is_stale(item_id):
             self._waiting.setdefault(item_id, set()).add(row)
-            return EMPTY_ROW
-        return row_text(text)
+        return EMPTY_ROW if text is None else row_text(text)
 
     def position(self, row: int) -> int | None:
         """The row's position in the index, if the rows are in its order."""
