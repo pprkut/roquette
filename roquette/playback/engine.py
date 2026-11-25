@@ -106,8 +106,9 @@ MAX_VOLUME = 10.0
 BUFFER_TIME = 0.4
 LATENCY_TIME = 0.1
 
-# A position this close to the duration is the end of the track.
-_END = 0.05
+# While a next file has failed: how long after the audible source's end
+# the timer looks again whether its position still moves.
+_TAIL_CHECK = 0.25
 
 # GStreamer 1.24's playbin3 sometimes doesn't start: it stays in READY
 # with PLAYING pending and posts nothing (seen with every core busy,
@@ -232,8 +233,10 @@ class Engine:
         self._seek_to: float | None = None
         # Failures in a row.
         self._errors = 0
-        # The last entry failed, so no end-of-stream will come: the end of
-        # the audible source is found with a timer.
+        # A next file failed while the one before played: GStreamer posts
+        # no end-of-stream then, and doesn't always take the file queued in
+        # its place (1.28). A timer watches the end of the audible source
+        # until something after it starts.
         self._stalled = False
         self._tail_timer: Any = None
         # The start that is waiting for the pipeline, and its tries.
@@ -568,8 +571,6 @@ class Engine:
                 return True
             uri = self._enqueue(source)
             self._exhausted = False
-        self._stalled = False
-        self._cancel_tail()
         self._playbin.set_property("uri", uri)
         return True
 
@@ -686,6 +687,10 @@ class Engine:
             self._switch(previous.source if previous is not None else None)
             return
         self._current = entry
+        if self._stalled:
+            # What followed the failed file started.
+            self._stalled = False
+            self._cancel_tail()
         self._errors = 0
         self._report(entry)
 
@@ -779,9 +784,9 @@ class Engine:
             if candidate is None or not self._queue_late(candidate):
                 with self._lock:
                     self._exhausted = True
-                self._stalled = True
-                if self._target is State.PLAYING:
-                    self._check_tail(None)
+            self._stalled = True
+            if self._target is State.PLAYING and self._tail_timer is None:
+                self._check_tail(None)
         elif candidate is not None:
             self._start(candidate)
         else:
@@ -824,8 +829,9 @@ class Engine:
         return entries[0] if entries else None
 
     def _check_tail(self, last: float | None) -> None:
-        """While stalled: wait for the audible source to end, then play
-        what follows the failed one."""
+        """While stalled: once the audible source has ended (its position
+        stops moving), start what was queued after the failed file, if
+        GStreamer didn't, or what follows."""
         self._tail_timer = None
         if not self._stalled or self._target is not State.PLAYING:
             return
@@ -833,12 +839,21 @@ class Engine:
         if position is None or duration is None:
             self._tail_timer = self._loop.call_later(1.0, self._check_tail, None)
             return
-        if position < duration - _END and position != last:
-            delay = max(duration - position, 0.1)
+        if position != last:
+            delay = max(duration - position, 0.0) + _TAIL_CHECK
             self._tail_timer = self._loop.call_later(delay, self._check_tail, position)
             return
         self._stalled = False
-        self._switch(self._tail())
+        with self._lock:
+            waiting = [
+                e
+                for e in self._entries
+                if e is not self._current and not (e.started or e.failed or e.stale)
+            ]
+        if waiting:
+            self._start(waiting[0].source)
+        else:
+            self._switch(self._tail())
 
     def _start_stuck(
         self, source: Source, paused: bool, position: float, restart: bool

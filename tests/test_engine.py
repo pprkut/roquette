@@ -96,6 +96,28 @@ def test_missing_next_file(tmp_path: Path, tracks: list[Audio], sync: bool) -> N
     assert error.skipped_to is last
 
 
+def test_replacement_not_taken(
+    tmp_path: Path, tracks: list[Audio], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GStreamer 1.28 doesn't always take the file queued in place of a
+    failed one: once the one before has ended, the engine starts it."""
+
+    def queue_without_the_uri(engine: Engine, source: Source) -> bool:
+        with engine._lock:
+            engine._enqueue(source)
+            engine._exhausted = False
+        return True
+
+    monkeypatch.setattr(Engine, "_queue_late", queue_without_the_uri)
+    # Long enough for `about-to-finish` to come after the start.
+    first, last = sources_for(tracks)[0], sources_for(tracks)[2]
+    sources = [first, Source(tmp_path / "missing.flac"), last]
+    output, recorder = play(sources, sync=True)
+    check(output, [(tracks[0], gain_of(0)), (tracks[2], gain_of(2))])
+    assert recorder.indices(sources) == [0, 2]
+    assert [e.skipped_to for e in recorder.errors] == [last]
+
+
 @pytest.mark.parametrize("sync", [False, True])
 def test_missing_last_file(tmp_path: Path, tracks: list[Audio], sync: bool) -> None:
     """GStreamer waits for the stream that failed: the engine finds the
