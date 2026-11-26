@@ -214,7 +214,9 @@ def test_next_file_fails_after_it_passed_the_filter(tracks: list[Audio]) -> None
         element: Any = Gst.ElementFactory.make("filesrc")
         element.props.location = str(sources[1].path)
         resource = Gst.ResourceError
-        error = GLib.Error.new_literal(resource.quark(), "failed", int(resource.READ))
+        error: Any = GLib.Error.new_literal(
+            resource.quark(), "failed", int(resource.READ)
+        )
         engine._bus.post(Gst.Message.new_error(element, error, "test"))
         await recorder.finished
 
