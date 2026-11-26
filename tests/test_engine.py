@@ -163,6 +163,26 @@ def test_unsupported_files(tmp_path: Path, tracks: list[Audio]) -> None:
     ]
 
 
+@pytest.mark.parametrize("kind", ["text", "truncated"])
+def test_unsupported_next_file(tmp_path: Path, tracks: list[Audio], kind: str) -> None:
+    """Its error comes from the parser (typefind, flacparse), which sits
+    in the file's `urisourcebin`: the error is the next file's, and the
+    audible one plays to its end."""
+    path = tmp_path / f"{kind}.flac"
+    if kind == "text":
+        path.write_text("not audio\n" * 100)
+    else:
+        path.write_bytes(tracks[1].path.read_bytes()[:30])
+    first, last = sources_for(tracks)[0], sources_for(tracks)[2]
+    sources = [first, Source(path), last]
+    output, recorder = play(sources, sync=True)
+    check(output, [(tracks[0], gain_of(0)), (tracks[2], gain_of(2))])
+    assert recorder.indices(sources) == [0, 2]
+    [error] = recorder.errors
+    assert (error.source, error.problem) == (sources[1], Problem.UNSUPPORTED)
+    assert error.skipped_to is last
+
+
 def test_too_many_failures(tmp_path: Path) -> None:
     sources = [Source(tmp_path / f"{n}.flac") for n in range(MAX_SKIPS + 5)]
     output, recorder = play(sources)

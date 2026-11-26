@@ -835,10 +835,11 @@ class Engine:
         """The entry an error is about.
 
         The element that failed says which file it was reading where it
-        knows: a `filesrc` by its location, a `urisourcebin` by its URI.
-        Otherwise (a decoder, say) it's the file whose stream came out of
-        the decoder last: the latest that started at the filter, or
-        before any did, the first one.
+        knows: a `filesrc` by its location, a `urisourcebin` by its URI
+        (the parsers, typefind and parsebin, are in the file's
+        urisourcebin, GStreamer 1.28). Otherwise (a decoder, say) it's
+        the file whose stream came out of the decoder last: the latest
+        that started at the filter, or before any did, the first one.
         """
         with self._lock:
             entries = list(self._entries)
