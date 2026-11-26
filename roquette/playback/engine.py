@@ -114,7 +114,9 @@ _TAIL_CHECK = 0.25
 # with PLAYING pending and posts nothing (seen with every core busy,
 # without roquette's callbacks too). A pipeline that hasn't started after
 # this many seconds is replaced and started again, up to `_START_TRIES`
-# times in all.
+# times in all, each try waiting this much longer than the one before. A
+# start that is only slow (a disk spinning up, a network mount) looks the
+# same; it gets 30 s in all before playback stops.
 START_TIMEOUT = 5.0
 _START_TRIES = 3
 
@@ -530,7 +532,12 @@ class Engine:
         self._playbin.set_state(Gst.State.PAUSED if prerolled else Gst.State.PLAYING)
         if self._loop is not None:
             self._start_timer = self._loop.call_later(
-                START_TIMEOUT, self._start_stuck, source, paused, position, restart
+                START_TIMEOUT * (self._start_tries + 1),
+                self._start_stuck,
+                source,
+                paused,
+                position,
+                restart,
             )
 
     def _reset(self) -> None:

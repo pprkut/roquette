@@ -165,8 +165,10 @@ break down:
   second). A pipeline that failed to start anyway is replaced by a new
   one with the same sink.
 - **A start watchdog**: a pipeline that hasn't reached its state 5 s after
-  a start is replaced and started again, three tries in all, then it's
-  reported as an error.
+  a start is replaced and started again, three tries in all, each waiting
+  5 s longer than the one before, then it's reported as an error. A start
+  that is only slow (a disk spinning up, a network mount) looks the same,
+  and gets 30 s in all.
 - **The gain is reported with each track that starts**
   (`on_started(source, AppliedGain)`): the factor, the mode asked for and
   the values used, where they came from, the gain with the pre-amp

@@ -10,6 +10,7 @@ the queues fill as they do with a sound card; those tests take as long
 as their files play.
 """
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -663,9 +664,12 @@ def test_a_start_that_never_happens(
     source = sources_for(tracks)[1]
 
     async def scenario(engine: Engine, recorder: Recorder) -> None:
+        start = time.monotonic()
         engine.play(source, paused=True)
         await recorder.finished
         assert engine.state is State.STOPPED
+        # Each try waits longer: a start that is only slow gets time.
+        assert time.monotonic() - start >= 0.1 + 0.2 + 0.3
 
     recorder = run(scenario, Capture().sink)
     [error] = recorder.errors
