@@ -5,7 +5,8 @@
 
 An output is chosen by its description, which `Engine` and `--audio-sink`
 (and the settings, M4) take: the sink element and the properties that
-pick the device, e.g. "pulsesink device=alsa_output.…". Listing them
+pick the device, e.g. "pulsesink device=alsa_output.…" or "pipewiresink
+target-object=alsa_output.…" (the node's name). Listing them
 asks GStreamer's device providers, which connect to the sound server:
 blocking, for a worker thread or the command line.
 """
@@ -18,7 +19,7 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import GObject, Gst  # noqa: E402
 
-__all__ = ["Output", "describe", "list_outputs"]
+__all__ = ["Output", "describe", "list_outputs", "name_target"]
 
 # Properties that don't pick a device, and can't be given in a description.
 _SKIP = {"name", "parent"}
@@ -70,7 +71,23 @@ def output_of(device: Any) -> Output | None:
     if properties is not None:
         ok, value = properties.get_boolean("is-default")
         default = bool(ok and value)
+        name_target(element, properties)
     return Output(str(device.get_display_name()), describe(element), default)
+
+
+def name_target(element: Any, properties: Any) -> None:
+    """Pick the device by its node's name, where the sink takes one.
+
+    pipewiresink's element for a device targets the node's serial, a
+    number PipeWire hands out while it runs: after a restart or a replug
+    it can be another device's or nobody's. `target-object` takes the
+    node's name too, which stays.
+    """
+    if element.find_property("target-object") is None:
+        return
+    name = properties.get_string("node.name")
+    if name:
+        element.set_property("target-object", name)
 
 
 def describe(element: Any) -> str:

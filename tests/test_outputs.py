@@ -8,7 +8,13 @@ from typing import Any
 import gi
 
 from roquette.playback.engine import make_sink
-from roquette.playback.outputs import Output, describe, list_outputs, output_of
+from roquette.playback.outputs import (
+    Output,
+    describe,
+    list_outputs,
+    name_target,
+    output_of,
+)
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst  # noqa: E402
@@ -111,6 +117,34 @@ def test_output_of() -> None:
         "Other", "fakesink sync=true", False
     )
     assert output_of(FakeDevice("Broken", None, False)) is None
+
+
+class TargetSink:
+    """pipewiresink's element for a device, as far as `name_target` sees it."""
+
+    def __init__(self) -> None:
+        self.properties: dict[str, str] = {"target-object": "4812"}
+
+    def find_property(self, name: str) -> object | None:
+        return name if name in self.properties else None
+
+    def set_property(self, name: str, value: str) -> None:
+        self.properties[name] = value
+
+
+def test_name_target() -> None:
+    sink = TargetSink()
+    node = "alsa_output.usb-Yamaha_NX-N500-00.analog-stereo"
+    name_target(sink, Gst.Structure.new_from_string(f"properties, node.name={node}"))
+    assert sink.properties["target-object"] == node
+    # Without a node name, the serial stays.
+    sink = TargetSink()
+    name_target(sink, Gst.Structure.new_from_string("properties, is-default=true"))
+    assert sink.properties["target-object"] == "4812"
+    # A sink without the property is left as it is.
+    fakesink: Any = Gst.ElementFactory.make("fakesink")
+    name_target(fakesink, Gst.Structure.new_from_string("properties, node.name=x"))
+    assert describe(fakesink) == "fakesink"
 
 
 def test_list_outputs() -> None:
