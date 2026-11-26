@@ -36,6 +36,43 @@ def test_describe_quotes_strings() -> None:
     assert element.props.location == location
 
 
+class LonelyFactory:
+    """A factory that makes no other element."""
+
+    def __init__(self, factory: Any) -> None:
+        self.factory = factory
+
+    def get_name(self) -> str:
+        return str(self.factory.get_name())
+
+    def create(self, name: str | None) -> None:
+        return None
+
+
+class Lonely:
+    def __init__(self, element: Any) -> None:
+        self.element = element
+
+    def get_factory(self) -> LonelyFactory:
+        return LonelyFactory(self.element.get_factory())
+
+    def list_properties(self) -> Any:
+        return self.element.list_properties()
+
+    def get_property(self, name: str) -> Any:
+        return self.element.get_property(name)
+
+
+def test_describe_without_a_fresh_element() -> None:
+    """Compared with the properties' defaults instead."""
+    sink: Any = Gst.ElementFactory.make("fakesink")
+    sink.props.max_lateness = 5
+    description = describe(Lonely(sink))
+    assert description.startswith("fakesink ")
+    assert "max-lateness=5" in description.split()
+    make_sink(description)
+
+
 def _children(bin_: Any) -> list[Any]:
     if not isinstance(bin_, Gst.Bin):
         return [bin_]

@@ -75,7 +75,8 @@ def output_of(device: Any) -> Output | None:
 
 def describe(element: Any) -> str:
     """A description that makes `element` again: its factory and the
-    properties set to something else than a new one of its kind has."""
+    properties set to something else than a new one of its kind has (or,
+    if the factory makes no other, than the properties' defaults)."""
     factory = element.get_factory()
     fresh = factory.create(None)
     parts = [str(factory.get_name())]
@@ -88,7 +89,11 @@ def describe(element: Any) -> str:
         ):
             continue
         value = element.get_property(spec.name)
-        if value == fresh.get_property(spec.name):
+        if fresh is not None:
+            unset = fresh.get_property(spec.name)
+        else:
+            unset = spec.get_default_value()
+        if value == unset:
             continue
         text = _serialize(spec, value)
         if text is not None:
