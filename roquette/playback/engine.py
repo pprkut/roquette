@@ -729,7 +729,13 @@ class Engine:
                     del self._entries[:n]
                     break
         if entry is None:
-            log.warning("a stream started that wasn't queued")
+            with self._lock:
+                queued = [(e.source.path.name, e.group) for e in self._entries]
+            log.warning(
+                "a stream started that wasn't queued (group %s; queued: %s)",
+                group if ok else None,
+                queued,
+            )
             return
         if entry.stale or entry.dropped:
             # The provider changed its mind after the stream had passed
