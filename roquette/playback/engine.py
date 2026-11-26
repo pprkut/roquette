@@ -139,9 +139,11 @@ class _Entry:
     # The provider has another source next; the filter dropped its stream.
     stale: bool = False
     dropped: bool = False
-    # The event loop's: it failed; on_started was called.
+    # The event loop's: it failed; on_started was called; it became
+    # audible after another one (a track change, not a start).
     failed: bool = False
     reported: bool = False
+    follows: bool = False
 
 
 def stream_key(uri: str) -> str:
@@ -230,6 +232,14 @@ class Engine:
         # The state asked for, which the pipeline may not have reached yet.
         self._target = State.STOPPED
         self._current: _Entry | None = None
+        # The entry reported as playing: the audible one, except after a
+        # track change that reached the sink while paused, which is
+        # reported when playback resumes. The sink takes the next stream
+        # once the rest of the previous one is in its buffer, so a pause in
+        # a track's last moments would otherwise show the next one with the
+        # end of the previous one still to come. Where it was paused.
+        self._shown: _Entry | None = None
+        self._paused_at: float | None = None
         # Where to seek once the pipeline has paused (a source opened
         # again, or at a position).
         self._seek_to: float | None = None
@@ -323,16 +333,16 @@ class Engine:
     @property
     def current(self) -> Source | None:
         """The source that is audible (or paused)."""
-        return self._current.source if self._current is not None else None
+        return self._shown.source if self._shown is not None else None
 
     @property
     def gain(self) -> AppliedGain | None:
         """The ReplayGain applied to the audible source, once it's known."""
-        current = self._current
-        if current is None:
+        shown = self._shown
+        if shown is None:
             return None
         with self._lock:
-            return current.gain if current.gain_final else None
+            return shown.gain if shown.gain_final else None
 
     def play(
         self, source: Source, *, paused: bool = False, position: float = 0.0
@@ -349,6 +359,7 @@ class Engine:
         if self._target is State.PLAYING:
             self._target = State.PAUSED
             self._cancel_tail()
+            self._paused_at = self.position()
             self._playbin.set_state(Gst.State.PAUSED)
 
     def resume(self) -> None:
@@ -359,6 +370,9 @@ class Engine:
                 self._playbin.set_state(Gst.State.PLAYING)
             if self._stalled:
                 self._check_tail(None)
+            self._paused_at = None
+            # A track change that came while paused.
+            self._report(self._current)
 
     def stop(self) -> None:
         """Stop and forget the source; the audio device is closed."""
@@ -375,6 +389,17 @@ class Engine:
         if self._seek_to is not None:
             # It's opened again already: seek there instead.
             self._seek_to = seconds
+            return
+        shown = self._shown
+        if shown is not None and shown is not self._current:
+            # A track change waits for playback to resume: the seek is in
+            # the track shown, whose stream the sink has finished.
+            self._start(
+                shown.source,
+                paused=self._target is State.PAUSED,
+                position=seconds,
+                restart=True,
+            )
             return
         with self._lock:
             ahead = any(e.started for e in self._entries if e is not self._current)
@@ -441,6 +466,8 @@ class Engine:
         """Seconds into the audible source."""
         if self._seek_to is not None:
             return self._seek_to
+        if self._shown is not self._current and self._paused_at is not None:
+            return self._paused_at
         ok, position = self._playbin.query_position(Gst.Format.TIME)
         return position / Gst.SECOND if ok else None
 
@@ -550,6 +577,8 @@ class Engine:
             self._settled = False
             self._deferred = False
         self._current = None
+        self._shown = None
+        self._paused_at = None
         self._seek_to = None
         self._stalled = False
         self._cancel_tail()
@@ -638,14 +667,18 @@ class Engine:
                 self.on_state_changed(state)
 
     def _report(self, entry: _Entry | None) -> None:
-        """Report `entry` as started once it's audible and its gain known."""
+        """Report `entry` as started once it's audible and its gain known,
+        and, after a track change, playing (see `_shown`)."""
         if entry is None or entry is not self._current or entry.reported:
+            return
+        if entry.follows and self._target is State.PAUSED:
             return
         with self._lock:
             gain = entry.gain if entry.gain_final else None
         if gain is None:
             return
         entry.reported = True
+        self._shown = entry
         if not entry.restart and self.on_started is not None:
             self.on_started(entry.source, gain)
 
@@ -704,11 +737,13 @@ class Engine:
             previous = self._current
             self._switch(previous.source if previous is not None else None)
             return
+        entry.follows = self._current is not None
         self._current = entry
         if entry.failed:
             # What passed the filter before it failed: heard, but it was
             # reported as skipped, and the engine is still stalled.
             entry.reported = True
+            self._shown = entry
             return
         if self._stalled:
             # What followed the failed file started.
@@ -734,6 +769,9 @@ class Engine:
                     self._playbin.set_state(Gst.State.PLAYING)
                     return
             if self._target is State.PAUSED:
+                if self._shown is self._current:
+                    # Where it stopped; `pause()` asked a moment before.
+                    self._paused_at = self.position()
                 self._settle()
                 self._set_state(State.PAUSED)
 
