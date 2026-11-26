@@ -654,7 +654,8 @@ def test_set_sink_while_playing(tracks: list[Audio]) -> None:
     # asks for the position a moment after the test), then the second.
     output = after.samples
     skipped = tracks[0].frames - (len(output) // CHANNELS - tracks[1].frames)
-    assert 0 <= skipped / RATE - switched[0] < 0.01
+    # (The seek lands on a whole frame: up to one before it.)
+    assert -1.5 / RATE <= skipped / RATE - switched[0] < 0.01
     check(
         output, [(tracks[0].after(skipped / RATE), gain_of(0)), (tracks[1], gain_of(1))]
     )
