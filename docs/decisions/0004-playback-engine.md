@@ -97,8 +97,22 @@ A bare playbin3 (no roquette, no Python callbacks) grows by about
 NULL. The engine grows at the same rate, replacing the pipeline makes no
 difference, and a start that fails doesn't grow it. The elements don't
 pile up in the pipeline (one `urisourcebin` at a time). About 12 MiB a
-day of music at four minutes a track: against the plan's "RSS flat over
-an 8-hour run", if the desktop's GStreamer does the same.
+day of music at four minutes a track.
+
+**GStreamer 1.28 doesn't** (on the desktop, see "Measurements"): about
+130 more tracks in the same process added 0.6 MiB. It's 1.24's, which
+the plan's "RSS flat over an 8-hour run" doesn't have to answer for.
+
+### A pause in a track's last moments
+
+On the desktop: paused in the last second of a track, the transport
+bar showed the next track (its title, its duration) while the end of
+the previous one was still to be heard. The sink takes the next stream
+once the rest of the previous one is in its buffer (0.4 s), and posts
+STREAM_START then, paused or not; the engine reported the track change
+at once. (The seek bar then stopped on its way back to 0, and stayed
+there after "previous": the Slider's animation, which seems to need
+frames that nothing asks for while paused. M5's seek bar.)
 
 ### Wake-ups and the sink's buffer
 
@@ -108,11 +122,11 @@ wake-ups of every thread, by name (see "Measurements"), which S2 couldn't
 break down:
 
 - **pulsesink's client thread** (`threaded-ml`, PulseAudio's threaded
-  main loop) is the busiest: 31 a second with GStreamer's 10 ms
-  segments, 21 with 100 ms ones. Not the hundred a second 10 ms
-  segments suggest: the server asks for data in larger pieces than the
-  segment (here PulseAudio's null sink; PipeWire's pulse server may
-  differ).
+  main loop) is the busiest. On the desktop, through PipeWire's pulse
+  server: 92 a second with GStreamer's 10 ms segments, 20 with 100 ms
+  ones, and playsink's queue, which feeds it, wakes 43 times a second
+  instead of 9. In the container, PulseAudio's null sink asked for data
+  in larger pieces than the segment anyway: 31 against 21.
 - **GStreamer's queues** wake per buffer: decodebin3's multiqueue
   (`multiqueue0:src`, about 10 a second, one per FLAC frame of 4,096
   samples) and playsink's queue (`aqueue:src`, 10 to 13). Bigger buffers
@@ -122,6 +136,13 @@ break down:
   7 s here) and the measuring itself.
 - CPU is 0.7 % of a core either way, which is decoding and the queues;
   the plan's "well under 1 %" for FLAC holds for the engine on its own.
+
+### Listening test
+
+On the desktop, gapless releases with the new sink sizes (0.4 s buffer,
+0.1 s segments, pulsesink through PipeWire): no gaps, clicks or gain
+jumps at the transitions. A missing file wasn't tried there: that would
+mean changing files of the music library.
 
 ## Decision
 
@@ -176,16 +197,27 @@ break down:
   the volume at which the track would clip. With the gain from the tags,
   it may be known only after the sink posted STREAM_START: the probe
   posts an application message, and the report waits for both.
+- **A track change that reaches the sink while paused** is reported when
+  playback resumes. Until then `current`, `gain` and `position()` are
+  the track shown, where it was paused, and a seek opens that track
+  again at the position.
 - **Volume**: 0 to 10 (playbin3's range), linear; above 1 it amplifies.
 - **Outputs are sink descriptions**: `list_outputs()` turns GStreamer's
   devices into the element and the properties that pick the device
   (`pulsesink device="…"`), which `--audio-sink`, and M4's setting, take.
-  `roquette --list-outputs` prints them.
+  `roquette --list-outputs` prints them. pipewiresink's element for a
+  device targets the node's serial (`target-object="4812"` on the
+  desktop), a number PipeWire hands out while it runs, which a restart
+  or a replug can give to another device; the description names the
+  node instead (`node.name`, which `target-object` takes too).
 - **The sink's buffer and segments: 0.4 s and 0.1 s** for sinks that have
   them (pulsesink, alsasink), instead of GStreamer's 0.2 s and 10 ms,
   set on every element playbin3 adds (`element-setup`), so autoaudiosink's
-  sink too: about 15 % fewer wake-ups with pulsesink (see
-  "Measurements"), for a buffer that's 0.2 s longer. `--audio-buffer` and
+  sink too: 62 % fewer wake-ups in all with pulsesink through PipeWire
+  on the desktop (see "Measurements"), for a buffer that's 0.2 s
+  longer. autoaudiosink's pulsesink stays the default: with these sizes
+  it wakes about half as often as pipewiresink, which has neither
+  property. `--audio-buffer` and
   `--audio-latency` change them until M4.
 - **`pygobject-stubs`** in the lint group: mypy checks the GStreamer
   calls. Plugins' properties, which the stubs can't know, are set by
@@ -193,6 +225,52 @@ break down:
   still passes.
 
 ## Measurements
+
+### On the desktop
+
+i7-1185G7, Iris Xe, KDE on X11, Linux 7.3.5, GStreamer 1.28.9, Python
+3.12.16, slint 1.19.0b1, beets 2.14.1, the dev library (11,849 tracks);
+at 71d748a, 2026-11-26.
+
+`just measure-playback`, 30 s after 5 s, three runs each; autoaudiosink
+picked pulsesink (through PipeWire's pulse server):
+
+| buffer / segments | CPU % | wake-ups/s (all / main) | RSS MiB | PSS MiB | threads |
+|---|---|---|---|---|---|
+| 0.2 s / 10 ms (M1) | 0.7–0.8 | 173.5–175.0 / 2.6 | 49.6–51.1 | 30.6–32.1 | 13 |
+| 0.4 s / 100 ms (M2) | 0.6–0.7 | 66.6–67.1 / 2.1–2.7 | 49.5–51.2 | 30.5–32.1 | 13 |
+
+| thread | 10 ms | 100 ms |
+|---|---|---|
+| `threaded-ml` (PulseAudio client) | 92.0 | 20.0 |
+| `aqueue:src` (playsink) | 43.1 | 8.6 |
+| `multiqueue0:src` (decodebin3) | 10.3 | 9.2 |
+| `typefindelement` | 9.6 | 9.4 |
+| main thread | 2.6 | 2.7 |
+
+One run of 60 s and one of 900 s (about 130 more tracks): RSS 50.1 and
+50.7 MiB, PSS 31.0 and 31.7 MiB.
+
+`just measure femtovg` with `PLAY_QUERY='album:Stripped'`, against M1's
+run at 1fa073b (desktop, slint 1.18.1b1, from M1's pull request):
+
+| | M1 | M2, pulsesink | M2, pipewiresink |
+|---|---|---|---|
+| window created / library loaded | 362 / 512 ms | 324 / 446 ms | 339 / 476 ms |
+| idle RSS / PSS | 197.8 / 126.3 MiB | 198.4 / 127.2 MiB | 198.1 / 127.2 MiB |
+| playing CPU, shown / hidden | 2.3 / 0.9 % | 1.7 / 0.5 % | 1.8 / 0.7 % |
+| playing wake-ups/s (all / main), shown | – | 79.3 / 15.1 | 149.0 / 13.7 |
+| playing wake-ups/s (all / main), hidden | – | 69.8 / 7.1 | 140.0 / 6.7 |
+| scrolling tracks (fps median / min) | 49 / 45 | 45 / 35 | 45 / 41 |
+| tracks, 10× | 28 / 24 | 25 / 22 | 25 / 23 |
+| covers, cold / warm cache | 55 / 56 | 58 / 57 | 57 / 57 |
+
+Playing costs less than in M1 and wakes far less than S2's 180 a second
+with pulsesink. Startup is faster and the library is loaded within the
+500 ms budget, and scrolling the track list a little slower: M2 doesn't
+touch either, slint 1.19.0b1 does (M5).
+
+### In the container
 
 `just measure-playback` in the cloud container (Intel Xeon @ 2.80 GHz,
 4 cores, Ubuntu 24.04, GStreamer 1.24.2, Python 3.13.18), three runs of
@@ -236,14 +314,12 @@ music, on the desktop.
   answering None, and `next_changed()`.
 - **M4**: the output (a sink description), the buffer and the segment
   size become settings.
-- **M5**: `on_started` comes about the sink's buffer before the track is
-  heard (the sink takes the next stream once the previous one is in its
-  buffer): 0.4 s now, 0.2 s before. The display can wait for it. The
-  volume control has `AppliedGain` to show.
+- **M5**: while playing, `on_started` comes about the sink's buffer
+  before the track is heard (the sink takes the next stream once the
+  previous one is in its buffer): 0.4 s now, 0.2 s before. The display
+  can wait for it. The seek bar's Slider stops in the middle of its
+  animation while paused. The volume control has `AppliedGain` to show.
 - Open issues:
-  - The sink's sizes need a listening test and a `just measure` run on
-    the desktop (pulsesink through pipewire-pulse, and pipewiresink,
-    which has neither property).
   - Whether GStreamer 1.28 still fails starts as 1.24 does (the tests
     pass on CI's 1.28, which doesn't tell); the workarounds cost nothing
     when it doesn't.
@@ -253,6 +329,9 @@ music, on the desktop.
   - GStreamer's own threads wake per FLAC frame (93 ms) and per buffer
     of playsink's queue; larger buffers would need a different
     pipeline.
-  - playbin3 1.24 grows by 0.1 MiB a track (see "Memory per track"):
-    the 8-hour run (MVP) checks it with the desktop's GStreamer; if it
-    grows there too, a GStreamer bug report with the bare pipeline.
+  - playbin3 1.24 grows by 0.1 MiB a track, 1.28 doesn't (see "Memory
+    per track"); on a system with 1.24, as Ubuntu 24.04 has, a long run
+    grows.
+  - The outputs' node names on PipeWire are only tested with a stand-in
+    in the container (no PipeWire there): `--list-outputs` on the
+    desktop shows them.

@@ -346,9 +346,10 @@ at scale 2):
   no more than a few wake-ups per second for the position display, none
   while the window is hidden or minimised. (S2: 2–4% CPU, about 12
   main-thread wake-ups a second shown and minimised, 140–200 in all
-  threads; M2 and M5 work towards the budget. M2, the engine without
-  the window: 0.7 % CPU, 61 wake-ups a second in all threads with
-  pulsesink, see `docs/decisions/0004-playback-engine.md`.)
+  threads; M2 and M5 work towards the budget. M2 on the desktop: 1.7 %
+  CPU shown, 0.5 % hidden, 79 wake-ups a second in all threads (15 on
+  the main thread) shown, 70 (7) hidden, with pulsesink; see
+  `docs/decisions/0004-playback-engine.md`.)
 - **After browsing** every release in Browse and back: idle plus the
   cover cache's limit (32 MiB by default) plus at most 10 MiB, not "idle
   plus every cover", with a cold thumbnail cache too.
