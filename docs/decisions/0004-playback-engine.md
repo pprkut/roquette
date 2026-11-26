@@ -149,13 +149,15 @@ break down:
   the output (`set_sink`) does the same.
 - **Errors are skipped and reported** (`PlaybackError` with a `Problem`:
   missing, unreadable, unsupported, decode, other, and what plays
-  instead). A failing next file lets the audible one play to its end:
-  the file after the failed one is queued late, gaplessly. Until
-  something after it starts, a timer watches the end of the audible file
-  (at its remaining time, then a quarter of a second later): once its
-  position stands still, the engine starts the queued file itself, if
-  GStreamer didn't, or what follows. Sources that failed are skipped until the next
-  `play()`; ten failures in a row stop playback.
+  instead). A failing next file lets the audible one play to its end
+  (and what of the failed one has passed the filter already, which isn't
+  reported as started): the file after the failed one is queued late,
+  gaplessly. Until something after it starts, a timer watches the end of
+  the audible file (at its remaining time, then a quarter of a second
+  later): once its position stands still, the engine starts the queued
+  file itself, if GStreamer didn't, or what follows. Sources that failed
+  are skipped until the next `play()`; ten failures in a row stop
+  playback, once the audible file has ended where they were next files.
 - **Against playbin3 1.24's failed starts**: `about-to-finish` leaves the
   next source to the event loop until the pipeline has reached the state
   it was started in, then it's queued late. Gapless unless the first

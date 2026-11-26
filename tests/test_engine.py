@@ -172,6 +172,61 @@ def test_too_many_failures(tmp_path: Path) -> None:
     assert recorder.started == []
 
 
+def test_too_many_failures_after_the_audible_file(
+    tmp_path: Path, tracks: list[Audio]
+) -> None:
+    """The next files fail while the one before plays: once the limit is
+    reached, that one plays to its end and playback stops, although a
+    file after the failed ones would play."""
+    first, last = sources_for(tracks)[0], sources_for(tracks)[2]
+    missing = [Source(tmp_path / f"{n}.flac") for n in range(MAX_SKIPS)]
+    sources = [first, *missing, last]
+    output, recorder = play(sources, sync=True)
+    check(output, [(tracks[0], gain_of(0))])
+    assert recorder.indices(sources) == [0]
+    assert [e.source for e in recorder.errors] == missing
+    assert recorder.errors[-1].skipped_to is None
+    assert recorder.states[-1] is State.STOPPED
+
+
+def test_next_file_fails_after_it_passed_the_filter(tracks: list[Audio]) -> None:
+    """The audible file plays to its end, the failed one isn't reported
+    as started, and the one after it follows."""
+    from gi.repository import GLib, Gst
+
+    sources = sources_for(tracks)
+    capture = Capture(sync=True)
+
+    async def scenario(engine: Engine, recorder: Recorder) -> None:
+        engine.upcoming = SourceList(tuple(sources))
+        engine.play(sources[0])
+        entries = engine._entries
+        await until(
+            lambda: (
+                len(entries) >= 2
+                and entries[0].source is sources[0]
+                and entries[1].started
+            )
+        )
+        assert engine.current is sources[0]
+        # As a read error of the second file's source would be posted.
+        element: Any = Gst.ElementFactory.make("filesrc")
+        element.props.location = str(sources[1].path)
+        resource = Gst.ResourceError
+        error = GLib.Error.new_literal(resource.quark(), "failed", int(resource.READ))
+        engine._bus.post(Gst.Message.new_error(element, error, "test"))
+        await recorder.finished
+
+    recorder = run(scenario, capture.sink)
+    output = capture.samples
+    compare(output, 0, tracks[0], gain_of(0), "the audible track")
+    last = tracks[2]
+    compare(output, len(output) - len(last.samples), last, gain_of(2), "the next one")
+    assert recorder.indices(sources) == [0, 2]
+    [error] = recorder.errors
+    assert (error.source, error.skipped_to) == (sources[1], sources[2])
+
+
 def test_problems() -> None:
     from gi.repository import GLib, Gst
 
@@ -274,6 +329,28 @@ def test_next_removed_after_it_was_queued(tracks: list[Audio]) -> None:
 
     run(scenario, capture.sink)
     check(capture.samples, [(tracks[0], gain_of(0))])
+
+
+def test_next_changed_after_a_replacement_was_queued(
+    tmp_path: Path, tracks: list[Audio]
+) -> None:
+    """The file queued in place of a failed one stays queued when the
+    provider's answer is the same."""
+    first, last = sources_for(tracks)[0], sources_for(tracks)[2]
+    sources = [first, Source(tmp_path / "missing.flac"), last]
+    capture = Capture(sync=True)
+
+    async def scenario(engine: Engine, recorder: Recorder) -> None:
+        engine.upcoming = SourceList(tuple(sources))
+        engine.play(first)
+        await until(lambda: len(engine._entries) == 3 and engine._entries[1].failed)
+        engine.next_changed()
+        assert [e.stale for e in engine._entries] == [False, False, False]
+        await recorder.finished
+
+    recorder = run(scenario, capture.sink)
+    check(capture.samples, [(tracks[0], gain_of(0)), (tracks[2], gain_of(2))])
+    assert recorder.indices(sources) == [0, 2]
 
 
 def test_changed_back_before_it_starts(tracks: list[Audio]) -> None:

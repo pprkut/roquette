@@ -403,16 +403,21 @@ class Engine:
             stale_from = len(chain)
             previous = chain[0].source
             for n, entry in enumerate(chain[1:], 1):
+                if entry.failed:
+                    # It never starts, and the provider's answers skip it:
+                    # what follows it follows the one before.
+                    continue
                 if self._next_after(previous) is not entry.source:
                     stale_from = n
                     break
                 previous = entry.source
             # What follows the last entry that stays is queued late when
             # nothing else will queue it: `about-to-finish` has found
-            # nothing, or what follows it failed and never starts.
-            rest = chain[stale_from:]
-            late = (stale_from == len(chain) and exhausted) or bool(
-                rest and all(e.failed for e in rest)
+            # nothing, or the last entry failed and never starts.
+            late = (
+                stale_from == len(chain)
+                and (exhausted or chain[-1].failed)
+                and self._errors < MAX_SKIPS
             )
             candidate = self._next_after(previous) if late else None
             with self._lock:
@@ -575,8 +580,11 @@ class Engine:
         return True
 
     def _switch(self, after: Source | None) -> None:
-        """Play what the provider has after `after`, or finish."""
-        candidate = self._next_after(after) if after is not None else None
+        """Play what the provider has after `after`, or finish (also when
+        too many failed in a row: the last error said playback stops)."""
+        candidate = None
+        if after is not None and self._errors < MAX_SKIPS:
+            candidate = self._next_after(after)
         if candidate is not None:
             self._start(candidate)
             return
@@ -606,12 +614,15 @@ class Engine:
         return candidate
 
     def _tail(self) -> Source | None:
-        """The last source that stays: what follows it plays next."""
+        """The last source that stays: what follows it plays next. One
+        that failed only when no other stays (the provider may no longer
+        have it, and what follows it follows the one before)."""
         with self._lock:
-            for entry in reversed(self._entries):
-                if not entry.stale:
-                    return entry.source
-        return None
+            staying = [e for e in self._entries if not e.stale]
+        for entry in reversed(staying):
+            if not entry.failed:
+                return entry.source
+        return staying[-1].source if staying else None
 
     def _set_state(self, state: State) -> None:
         if state is not self._state:
@@ -687,6 +698,11 @@ class Engine:
             self._switch(previous.source if previous is not None else None)
             return
         self._current = entry
+        if entry.failed:
+            # What passed the filter before it failed: heard, but it was
+            # reported as skipped, and the engine is still stalled.
+            entry.reported = True
+            return
         if self._stalled:
             # What followed the failed file started.
             self._stalled = False
@@ -776,12 +792,23 @@ class Engine:
                 self._start(candidate, paused=paused)
             else:
                 ended = True
-        elif entry is not first and not entry.started:
+        elif entry is not first:
             # The next file, opened while the one before plays (or is about
             # to, a short one may be read before it's heard): that one
-            # plays to its end. GStreamer waits for the failed stream, so
+            # plays to its end, and so does what of the failed one passed
+            # the filter already. GStreamer waits for the failed stream, so
             # no end-of-stream comes unless something takes its place.
-            if candidate is None or not self._queue_late(candidate):
+            with self._lock:
+                n = next((n for n, e in enumerate(self._entries) if e is entry), None)
+                # What follows it may be queued already (a file that fails
+                # once it has been read, in the decoder), or have started
+                # (the stream after it dropped it from the entries).
+                later = self._entries[n + 1 :] if n is not None else None
+                if candidate is None:
+                    # Too many failed: what was queued after it doesn't play.
+                    for e in later or ():
+                        e.stale = True
+            if later == [] and (candidate is None or not self._queue_late(candidate)):
                 with self._lock:
                     self._exhausted = True
             self._stalled = True
@@ -802,8 +829,9 @@ class Engine:
 
         The element that failed says which file it was reading where it
         knows: a `filesrc` by its location, a `urisourcebin` by its URI.
-        Otherwise (a decoder, say) it's the audible source's, or before
-        anything is audible the first file's.
+        Otherwise (a decoder, say) it's the file whose stream came out of
+        the decoder last: the latest that started at the filter, or
+        before any did, the first one.
         """
         with self._lock:
             entries = list(self._entries)
@@ -824,8 +852,9 @@ class Engine:
                     if candidate.key == key:
                         return candidate
             element = element.get_parent()
-        if self._current is not None:
-            return self._current
+        for candidate in reversed(entries):
+            if candidate.started:
+                return candidate
         return entries[0] if entries else None
 
     def _check_tail(self, last: float | None) -> None:
