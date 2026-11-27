@@ -209,7 +209,9 @@ mean changing files of the music library.
   device targets the node's serial (`target-object="4812"` on the
   desktop), a number PipeWire hands out while it runs, which a restart
   or a replug can give to another device; the description names the
-  node instead (`node.name`, which `target-object` takes too).
+  node instead (`node.name`, which `target-object` takes too), e.g.
+  `pipewiresink target-object="alsa_output.usb-YAMAHA_Yamaha_NX-N500-00.analog-stereo"`
+  on the desktop.
 - **The sink's buffer and segments: 0.4 s and 0.1 s** for sinks that have
   them (pulsesink, alsasink), instead of GStreamer's 0.2 s and 10 ms,
   set on every element playbin3 adds (`element-setup`), so autoaudiosink's
@@ -332,6 +334,3 @@ music, on the desktop.
   - playbin3 1.24 grows by 0.1 MiB a track, 1.28 doesn't (see "Memory
     per track"); on a system with 1.24, as Ubuntu 24.04 has, a long run
     grows.
-  - The outputs' node names on PipeWire are only tested with a stand-in
-    in the container (no PipeWire there): `--list-outputs` on the
-    desktop shows them.
