@@ -59,7 +59,7 @@ lint = [
     "mypy==2.4.1",
     # Types for PyGObject's GStreamer bindings (LGPL-2.1-or-later).
     "pygobject-stubs==2.20.0",
-    "ruff==0.17.3",
+    "ruff==0.17.6",
 ]
 audit = [
     "deptry==0.25.1",
