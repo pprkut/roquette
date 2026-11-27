@@ -472,21 +472,22 @@ def test_states(tracks: list[Audio]) -> None:
     assert recorder.indices(sources) == [0, 1]
 
 
+class SinkMessage:
+    """STREAM_START as the sink would post it for the next stream."""
+
+    def __init__(self, group: int | None) -> None:
+        self.group = group
+
+    def parse_group_id(self) -> tuple[bool, int | None]:
+        return True, self.group
+
+
 def test_a_track_change_while_paused(tracks: list[Audio]) -> None:
     """The sink takes the next stream once the rest of the previous one is
     in its buffer: paused then, the next track isn't shown (reported,
     `current`, `position`) until playback resumes."""
     sources = sources_for(tracks)[:2]
     capture = Capture(sync=True)
-
-    class SinkMessage:
-        """STREAM_START as the sink would post it for the next stream."""
-
-        def __init__(self, group: int | None) -> None:
-            self.group = group
-
-        def parse_group_id(self) -> tuple[bool, int | None]:
-            return True, self.group
 
     async def scenario(engine: Engine, recorder: Recorder) -> None:
         engine.upcoming = SourceList(tuple(sources))
@@ -511,6 +512,42 @@ def test_a_track_change_while_paused(tracks: list[Audio]) -> None:
     # Reported once, and the audio as gapless as ever.
     assert recorder.indices(sources) == [0, 1]
     check(capture.samples, [(tracks[0], gain_of(0)), (tracks[1], gain_of(1))])
+
+
+def test_set_sink_after_a_track_change_while_paused(tracks: list[Audio]) -> None:
+    """The track shown plays on through the new sink where it was paused,
+    without being reported again; the next one follows."""
+    sources = sources_for(tracks)[:2]
+    before, after = Capture(sync=True), Capture()
+
+    paused_at: list[float] = []
+
+    async def scenario(engine: Engine, recorder: Recorder) -> None:
+        engine.upcoming = SourceList(tuple(sources))
+        engine.play(sources[0])
+        entries = engine._entries
+        await until(lambda: len(entries) == 2 and entries[1].gain_final)
+        engine.pause()
+        await until(lambda: engine.state is State.PAUSED)
+        engine._stream_audible(SinkMessage(entries[1].group))
+        position = engine.position()
+        assert position is not None
+        paused_at.append(position)
+        engine.set_sink(after.sink)
+        await until(lambda: engine.state is State.PAUSED and engine._seek_to is None)
+        assert engine.current is sources[0]
+        assert recorder.indices(sources) == [0]
+        engine.resume()
+        await recorder.finished
+
+    recorder = run(scenario, before.sink)
+    assert recorder.indices(sources) == [0, 1]
+    output = after.samples
+    skipped = tracks[0].frames - (len(output) // CHANNELS - tracks[1].frames)
+    assert abs(skipped / RATE - paused_at[0]) < 0.01
+    check(
+        output, [(tracks[0].after(skipped / RATE), gain_of(0)), (tracks[1], gain_of(1))]
+    )
 
 
 def test_play_from_a_position(tracks: list[Audio]) -> None:

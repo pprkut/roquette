@@ -502,9 +502,15 @@ class Engine:
             with self._lock:
                 first = self._entries[0] if self._entries else None
             entry = self._current or first
+            restart = entry is not None and (entry.reported or entry.restart)
+            shown = self._shown
+            if shown is not None and shown is not self._current:
+                # A track change waits for playback to resume: what plays
+                # on is the track shown, where it was paused (as `seek`).
+                entry, restart = shown, True
             if entry is not None:
                 position = self.position() or 0.0
-                reopen = (entry, position)
+                reopen = (entry, position, restart)
         # Only in NULL (or READY) does playbin take another sink; NULL
         # closes the device.
         self._playbin.set_state(Gst.State.NULL)
@@ -512,12 +518,12 @@ class Engine:
         self._playbin.set_property("audio-sink", sink)
         if reopen is None:
             return
-        entry, position = reopen
+        entry, position, restart = reopen
         self._start(
             entry.source,
             paused=self._target is State.PAUSED,
             position=position,
-            restart=entry.reported or entry.restart,
+            restart=restart,
         )
 
     def sink_name(self) -> str | None:
