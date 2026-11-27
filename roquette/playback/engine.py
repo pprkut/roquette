@@ -55,6 +55,7 @@ place, which GStreamer takes gaplessly.
 
 import hashlib
 import logging
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -196,6 +197,8 @@ class Engine:
         self.on_finished: Callable[[], None] | None = None
         self.on_error: Callable[[PlaybackError], None] | None = None
 
+        # The sizes the sink's description sets, which stay.
+        self._sizes_set = sizes_set(sink)
         if isinstance(sink, str):
             sink = make_sink(sink)
         self._sink = sink
@@ -495,6 +498,7 @@ class Engine:
         """Play through another sink: an element, a description (see
         `make_sink`) or None for autoaudiosink's choice. What plays goes
         on where it was."""
+        self._sizes_set = sizes_set(sink)
         if isinstance(sink, str):
             sink = make_sink(sink)
         reopen = None
@@ -1007,7 +1011,11 @@ class Engine:
         playbin.set_property("uri", uri)
 
     def _element_setup(self, playbin: Any, element: Any) -> None:
-        configure_sink(element, self.buffer_time, self.latency_time)
+        configure_sink(
+            element,
+            None if "buffer-time" in self._sizes_set else self.buffer_time,
+            None if "latency-time" in self._sizes_set else self.latency_time,
+        )
 
     def _probe(self, pad: Any, info: Any) -> Any:
         event = info.get_event()
@@ -1143,6 +1151,15 @@ class Engine:
                     self._playbin, Gst.Structure.new_empty(_GAIN_MESSAGE)
                 )
             )
+
+
+def sizes_set(sink: Any) -> frozenset[str]:
+    """The sizes (buffer-time, latency-time) a sink's description sets:
+    `configure_sink` leaves them as they are."""
+    if not isinstance(sink, str):
+        return frozenset()
+    found = re.findall(r"(?<![\w-])(buffer|latency)[-_]time\s*=", sink)
+    return frozenset(f"{name}-time" for name in found)
 
 
 def configure_sink(

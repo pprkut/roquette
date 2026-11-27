@@ -23,6 +23,7 @@ from roquette.playback.engine import (
     Engine,
     configure_sink,
     make_sink,
+    sizes_set,
 )
 from roquette.playback.gain import ReplayGain
 from roquette.playback.source import Problem, Source, SourceList, State
@@ -788,6 +789,36 @@ def test_configure_sink() -> None:
     assert configure_sink(sink, None, None)
     assert sink.props.buffer_time == 400_000
     assert not configure_sink(Gst.ElementFactory.make("fakesink"), 0.4, 0.1)
+
+
+def test_sizes_set() -> None:
+    assert sizes_set(None) == frozenset()
+    assert sizes_set("pulsesink") == frozenset()
+    assert sizes_set("pulsesink buffer-time=1000000") == {"buffer-time"}
+    assert sizes_set("alsasink latency_time=5000 buffer-time = 9") == {
+        "buffer-time",
+        "latency-time",
+    }
+    assert sizes_set("pulsesink x-buffer-time=1") == frozenset()
+
+
+def test_sizes_of_the_sink_description_stay() -> None:
+    """`--audio-buffer` and `--audio-latency` don't override the sizes the
+    sink's description sets."""
+    from gi.repository import Gst
+
+    if Gst.ElementFactory.find("alsasink") is None:
+        pytest.skip("no alsasink")
+    engine = Engine("alsasink buffer-time=1000000", buffer_time=0.3, latency_time=0.05)
+    # The description makes a bin around the sink.
+    sink: Any = engine._sink
+    element = sink.get_by_name("alsasink0") or sink.iterate_sinks().next()[1]
+    engine._element_setup(engine._playbin, element)
+    assert (element.props.buffer_time, element.props.latency_time) == (
+        1_000_000,
+        50_000,
+    )
+    engine.close()
 
 
 def test_sink_configured_in_the_pipeline(
