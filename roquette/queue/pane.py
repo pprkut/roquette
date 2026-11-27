@@ -4,18 +4,20 @@
 """The playlist pane's rows: releases, their tracks, and the versions of
 a track's recording when they're expanded.
 
-S1's placeholder: the entries are made up, and tracks dropped on the pane
-are added as entries without versions. M3 replaces the entries with the
-live playlist; the layout stays a view model like this.
+The live playlist's entries, grouped into runs of the same release, with
+the text the window has read for them. Versions are shown from M11 on
+(docs/PLAN.md, "Recording versions"); M7 and M10 make the pane what the
+plan has, and only rebuild what changed.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import NamedTuple
 
 from roquette.library.index import TrackText
 from roquette.modules.tracks import format_length
+from roquette.queue import playlist
 
 
 class RowKind(IntEnum):
@@ -42,6 +44,8 @@ class Entry:
     versions: list[Version] = field(default_factory=list)
     chosen: int = 0
     expanded: bool = False
+    # The entry's position in the live playlist.
+    index: int = -1
 
 
 @dataclass(slots=True)
@@ -79,53 +83,55 @@ def stars(rating: float | None) -> str:
     return "★" * (halves // 2) + "½" * (halves % 2) + "☆" * ((10 - halves) // 2)
 
 
-def placeholder_groups() -> list[Group]:
-    """A few entries to show multi-line rows and versions with."""
-    side = "The Dark Side of the Moon"
-    return [
-        Group(
-            side,
-            "Pink Floyd",
-            1973,
-            [
-                Entry(1, "Speak to Me", "Pink Floyd", 67, 0.8),
-                Entry(2, "Breathe (In the Air)", "Pink Floyd", 169, 0.9),
-                Entry(3, "On the Run", "Pink Floyd", 225, 0.7),
-                Entry(
-                    4,
-                    "Time",
-                    "Pink Floyd",
-                    413,
-                    1.0,
-                    [
-                        Version(side, "FLAC 16/44.1", 413),
-                        Version(f"{side} (2011 remaster)", "FLAC 24/96", 421),
-                        Version("Echoes: The Best of Pink Floyd", "MP3 320", 397),
-                    ],
-                ),
-                Entry(5, "The Great Gig in the Sky", "Pink Floyd", 283, 0.9),
-            ],
-        ),
-        Group(
-            "Selected Ambient Works 85–92",
-            "Aphex Twin",
-            1992,
-            [
-                Entry(1, "Xtal", "Aphex Twin", 291, 0.8),
-                Entry(2, "Tha", "Aphex Twin", 541, 0.6),
-            ],
-        ),
-    ]
+def groups_for(
+    entries: Sequence[playlist.Entry],
+    text: Mapping[int, TrackText],
+    current: playlist.Entry | None = None,
+) -> tuple[list[Group], tuple[int, int] | None]:
+    """The live playlist's entries in groups of a release (singletons of
+    an artist together); and where the current entry is, as (group,
+    entry). Entries without text yet show without it."""
+    groups: list[Group] = []
+    keys: list[tuple[int, str]] = []
+    playing = None
+    empty = TrackText("", "", "", "", 0, 0, 0.0)
+    for n, entry in enumerate(entries):
+        item = entry.item
+        track = text.get(item.id, empty)
+        key = (item.album_id, "" if item.album_id else track.albumartist)
+        if not keys or keys[-1] != key:
+            keys.append(key)
+            groups.append(Group(track.album, track.albumartist, 0, []))
+        group = groups[-1]
+        if entry is current:
+            playing = (len(groups) - 1, len(group.entries))
+        group.entries.append(
+            Entry(track.track, track.title, track.artist, track.length, index=n)
+        )
+    return groups, playing
 
 
 class PlaylistPane:
-    def __init__(self, groups: list[Group]) -> None:
+    def __init__(
+        self, groups: list[Group], playing: tuple[int, int] | None = None
+    ) -> None:
         self.groups = groups
         # The entry playing, as (group, entry).
-        self.playing: tuple[int, int] | None = (0, 1) if groups else None
+        self.playing = playing
         self.current = -1
         self._refs: list[_Ref] = []
         self._layout()
+
+    def set_groups(
+        self, groups: list[Group], playing: tuple[int, int] | None = None
+    ) -> None:
+        """Show other groups; the selected row stays where it was, if
+        there are as many rows."""
+        self.groups = groups
+        self.playing = playing
+        self._layout()
+        if self.current >= len(self._refs):
+            self.current = -1
 
     def __len__(self) -> int:
         return len(self._refs)
@@ -220,23 +226,6 @@ class PlaylistPane:
             if entry.versions and entry.expanded == (key == "left"):
                 return self.current, self.toggle(self.current)
         return self.current, None
-
-    def append(self, tracks: Sequence[TrackText]) -> tuple[int, int]:
-        """Add tracks at the end; returns the first new row and the count."""
-        start = len(self._refs)
-        for track in tracks:
-            last = self.groups[-1] if self.groups else None
-            if last is None or (last.title, last.albumartist) != (
-                track.album,
-                track.albumartist,
-            ):
-                last = Group(track.album, track.albumartist, 0, [])
-                self.groups.append(last)
-            last.entries.append(
-                Entry(track.track, track.title, track.artist, track.length)
-            )
-        self._layout()
-        return start, len(self._refs) - start
 
     def _layout(self) -> None:
         refs = []

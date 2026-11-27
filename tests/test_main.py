@@ -28,6 +28,7 @@ def test_defaults() -> None:
     assert args.replaygain == "auto"
     assert args.replaygain_source == "beets"
     assert args.preamp == 0.0
+    assert (args.repeat, args.shuffle) == ("off", "off")
     assert not args.list_outputs
     assert (args.audio_buffer, args.audio_latency) == (400, 100)
 
@@ -53,6 +54,10 @@ def test_playback() -> None:
             "200",
             "--audio-latency",
             "10",
+            "--repeat",
+            "playlist",
+            "--shuffle",
+            "releases",
         ]
     )
     assert args.play == "album:Foo"
@@ -61,6 +66,7 @@ def test_playback() -> None:
     assert args.replaygain_source == "tags"
     assert args.preamp == -3.0
     assert (args.audio_buffer, args.audio_latency) == (200, 10)
+    assert (args.repeat, args.shuffle) == ("playlist", "releases")
 
 
 @pytest.mark.parametrize(

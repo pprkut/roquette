@@ -144,11 +144,7 @@ class LivePlaylist:
     async def settle(self) -> None:
         """Wait for the look-ups on their way (for the tests)."""
         while self._tasks or self._loading is not None:
-            await asyncio.gather(
-                *self._tasks,
-                *([self._loading] if self._loading else []),
-                return_exceptions=True,
-            )
+            await asyncio.sleep(0.001)
 
     # The engine's provider, on any thread
 

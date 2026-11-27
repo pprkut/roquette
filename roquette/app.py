@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: Copyright 2026  Heinz Wiesinger, Amsterdam, The Netherlands
 # SPDX-License-Identifier: MIT
 
-"""Wiring: S1's window and S2's engine on M1's library layer."""
+"""Wiring: S1's window, M2's engine and M3's live playlist on M1's
+library layer."""
 
 import argparse
 import asyncio
@@ -23,6 +24,12 @@ if TYPE_CHECKING:
 def thumbnail_dir() -> Path:
     cache = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
     return Path(cache) / "thumbnails"
+
+
+def state_dir() -> Path:
+    """roquette's in `$XDG_STATE_HOME` (docs/PLAN.md, "What lives where")."""
+    state = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    return Path(state) / "roquette"
 
 
 def make_engine(args: argparse.Namespace) -> "Engine":
@@ -97,6 +104,9 @@ def run(args: argparse.Namespace) -> int:
         cover_cache_bytes=args.cover_cache << 20,
         replaygain=args.replaygain,
         replaygain_source=args.replaygain_source,
+        repeat=args.repeat,
+        shuffle=args.shuffle,
+        playlist_file=state_dir() / "playlist.m3u8",
     )
     window: ui.MainWindow | None = None
     library: LibraryService | None = None
@@ -128,6 +138,7 @@ def run(args: argparse.Namespace) -> int:
         stopwatch.mark("library opened")
         collection = await library.collection()
         window.set_library(library, collection)
+        playlist = asyncio.ensure_future(window.load_playlist())
         # GStreamer is loaded once the window is filled: loading it on
         # its thread meanwhile slowed the library's down (GIL).
         gstreamer = asyncio.ensure_future(inbox.run(pool, lambda: make_engine(args)))
@@ -145,6 +156,7 @@ def run(args: argparse.Namespace) -> int:
                 f"roquette: not watching the beets library for changes: {error}",
                 file=sys.stderr,
             )
+        await playlist
         window.set_engine(await gstreamer)
         stopwatch.mark("gstreamer loaded")
         if args.play:
