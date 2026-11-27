@@ -520,7 +520,9 @@ From here on every milestone ships with tests.
   engine reports the ReplayGain it applies: the factor, the mode, the
   peak and whether the peak limited the gain, for the volume control
   (M5).
-- **M3 — Live playlist.** Entries are recordings with an optional pinned
+- **M3 — Live playlist.** *(done: the next sources resolved ahead as a
+  plan the engine reads, kept as M3U8, see
+  `docs/decisions/0005-live-playlist.md`)* Entries are recordings with an optional pinned
   version; append, insert, move, remove, play next; current track; repeat
   (off/track/playlist) and shuffle (tracks, releases); the ReplayGain mode
   decision; next track resolved ahead for gapless (the engine's
