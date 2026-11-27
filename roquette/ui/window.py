@@ -573,9 +573,10 @@ class MainWindow:
         engine = self.engine
         if engine is None:
             return
-        if engine.state is State.PLAYING:
+        # The state asked for: a start on its way is paused or resumed too.
+        if engine.target is State.PLAYING:
             engine.pause()
-        elif engine.state is State.PAUSED:
+        elif engine.target is State.PAUSED:
             engine.resume()
         elif self._sources.sources:
             engine.play(self._sources.sources[0])

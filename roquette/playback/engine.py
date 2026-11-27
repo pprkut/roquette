@@ -331,6 +331,12 @@ class Engine:
         return self._state
 
     @property
+    def target(self) -> State:
+        """The state asked for: PLAYING or PAUSED while a start is still
+        on its way, STOPPED when nothing plays or starts."""
+        return self._target
+
+    @property
     def current(self) -> Source | None:
         """The source that is audible (or paused)."""
         return self._shown.source if self._shown is not None else None

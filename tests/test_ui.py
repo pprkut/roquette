@@ -48,7 +48,15 @@ class FakeEngine:
         self.sought: list[float] = []
         self.current: Source | None = None
         self.state = State.PLAYING
+        self.target = State.PLAYING
         self.at = 0.0
+        self.calls: list[str] = []
+
+    def pause(self) -> None:
+        self.calls.append("pause")
+
+    def resume(self) -> None:
+        self.calls.append("resume")
 
     def play(self, source: Source, *, paused: bool = False) -> None:
         self.played.append(source.path)
@@ -134,6 +142,34 @@ def test_previous_and_next() -> None:
         engine.current = a
         window._previous()
         assert engine.sought == [0.0, 0.0]
+        inbox.close()
+
+    asyncio.run(main())
+
+
+def test_play_pause_while_a_track_starts() -> None:
+    """The state asked for counts, not the one the pipeline reached: a
+    start on its way is paused, not replaced by the list's first track."""
+    compiled = SimpleNamespace(
+        MainWindow=lambda: SimpleNamespace(volume=80.0),
+        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
+    )
+    engine = FakeEngine()
+
+    async def main() -> None:
+        inbox = Inbox(asyncio.get_running_loop())
+        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
+        window.engine = cast(Any, engine)
+        a, b = (Source(Path(f"{n}.flac")) for n in "ab")
+        window._sources.sources = (a, b)
+        engine.state = State.STOPPED
+        window._play_pause()
+        engine.target = State.PAUSED
+        window._play_pause()
+        assert (engine.calls, engine.played) == (["pause", "resume"], [])
+        engine.target = State.STOPPED
+        window._play_pause()
+        assert engine.played == [Path("a.flac")]
         inbox.close()
 
     asyncio.run(main())
