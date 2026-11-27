@@ -78,13 +78,18 @@ component Navigation inherits FocusScope {
             vertical-stretch: 1;
         }
 
-        Text {
-            x: 14px;
-            text: root.status;
-            wrap: word-wrap;
-            font-size: 0.85rem;
-            color: Palette.foreground;
-            opacity: Theme.dim;
+        // Lined up with the entries' titles; wrapped within the pane.
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+
+            Text {
+                text: root.status;
+                wrap: word-wrap;
+                font-size: 0.85rem;
+                color: Palette.foreground;
+                opacity: Theme.dim;
+            }
         }
     }
 }
