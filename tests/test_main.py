@@ -63,6 +63,25 @@ def test_playback() -> None:
     assert (args.audio_buffer, args.audio_latency) == (200, 10)
 
 
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--audio-buffer", "0"],
+        ["--audio-buffer", "-5"],
+        ["--audio-latency", "nan"],
+        ["--audio-latency", "inf"],
+        ["--audio-latency", "ten"],
+        ["--audio-buffer", "50", "--audio-latency", "100"],
+    ],
+)
+def test_audio_sizes_checked(
+    options: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(options)
+    assert "--audio-" in capsys.readouterr().err
+
+
 def test_list_outputs(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

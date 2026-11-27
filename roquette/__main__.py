@@ -4,6 +4,7 @@
 """Command line entry point: `python3 -m roquette`."""
 
 import argparse
+import math
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -68,18 +69,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     playback.add_argument(
         "--audio-buffer",
-        type=float,
+        type=milliseconds,
         default=400,
         metavar="MS",
-        help="the audio sink's buffer, where it has one (default: %(default)s)",
+        help="the audio sink's buffer, where it has one, unless --audio-sink sets"
+        " its buffer-time (default: %(default)s)",
     )
     playback.add_argument(
         "--audio-latency",
-        type=float,
+        type=milliseconds,
         default=100,
         metavar="MS",
-        help="the size of the segments the audio sink writes, where it has them;"
-        " larger ones wake it less often (default: %(default)s)",
+        help="the size of the segments the audio sink writes, where it has them,"
+        " unless --audio-sink sets its latency-time; larger ones wake it less"
+        " often (default: %(default)s)",
     )
     playback.add_argument(
         "--replaygain",
@@ -137,7 +140,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         metavar="SECONDS",
         help="time to wait after the scroll before quitting (default: %(default)s)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.audio_latency > args.audio_buffer:
+        parser.error("--audio-latency can't be larger than --audio-buffer")
+    return args
+
+
+def milliseconds(text: str) -> float:
+    """A duration in milliseconds, larger than 0."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {text!r}") from None
+    if not (value > 0 and math.isfinite(value)):
+        raise argparse.ArgumentTypeError(f"not a duration above 0 ms: {text!r}")
+    return value
 
 
 def main(argv: Sequence[str] | None = None) -> int:
