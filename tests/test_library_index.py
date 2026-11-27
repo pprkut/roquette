@@ -16,6 +16,8 @@ from roquette.library.index import (
     TrackText,
     load_index,
     load_playables,
+    load_playlist_items,
+    playlist_items_by_path,
     release_text,
     track_text,
 )
@@ -208,3 +210,27 @@ def test_playables(library: Library, beets_dir: Path) -> None:
         "The Beatles",
     )
     assert playables[0].replaygain.empty
+
+
+def test_playlist_items(library: Library, reader: ReadLibrary) -> None:
+    first, second = library.items["Come Together"], library.items["Hey You"]
+    items = load_playlist_items(reader, [second, 9999, first])
+    assert [i.id for i in items] == [second, first]
+    hey_you = items[0]
+    assert hey_you.album_id == library.albums[("The Wall", "album")]
+    assert (hey_you.disc, hey_you.track) == (2, 1)
+    assert hey_you.path == bytes(library.music / "Hey You.flac")
+    singleton = load_playlist_items(reader, [library.items["Xtal"]])[0]
+    assert singleton.album_id == 0
+
+
+def test_playlist_items_by_path(library: Library, reader: ReadLibrary) -> None:
+    wanted = [
+        bytes(library.music / "Something.flac"),
+        bytes(library.music / "missing.flac"),
+        bytes(library.music / "Xtal.flac"),
+    ]
+    found = playlist_items_by_path(reader, wanted)
+    assert sorted(found) == sorted([wanted[0], wanted[2]])
+    assert found[wanted[0]].id == library.items["Something"]
+    assert found[wanted[2]].path == wanted[2]

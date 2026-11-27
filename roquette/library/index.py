@@ -244,6 +244,62 @@ def load_playables(
     return [found[i] for i in ids if i in found]
 
 
+class PlaylistItem(NamedTuple):
+    """What the live playlist keeps of a track: its release and place on
+    it (for the ReplayGain mode and shuffling by release) and its path
+    (to save the playlist)."""
+
+    id: int
+    album_id: int
+    disc: int
+    track: int
+    path: bytes
+
+
+_PLAYLIST_ITEM = "SELECT id, album_id, disc, track, path FROM items"
+
+
+def _playlist_item(row: tuple[Any, ...], path: bytes) -> PlaylistItem:
+    return PlaylistItem(
+        _int(row[0]), _int(row[1]), _short(row[2]), _short(row[3]), path
+    )
+
+
+def load_playlist_items(
+    library: beets.library.Library, ids: Sequence[int]
+) -> list[PlaylistItem]:
+    """The tracks `ids`, in that order; ids that aren't in the library
+    are left out. Blocking, for the reader worker."""
+    path_field = beets.library.Item._fields["path"]
+    found = {
+        _int(row[0]): _playlist_item(row, path_field.from_sql(row[4]))
+        for row in _by_id(library, f"{_PLAYLIST_ITEM} WHERE id IN ({{}})", ids)
+    }
+    return [found[i] for i in ids if i in found]
+
+
+def playlist_items_by_path(
+    library: beets.library.Library, paths: Sequence[bytes]
+) -> dict[bytes, PlaylistItem]:
+    """The tracks of the files `paths` (absolute), by path; files that
+    aren't in the library are left out. Blocking, for the reader worker."""
+    path_field = beets.library.Item._fields["path"]
+    found: dict[bytes, PlaylistItem] = {}
+    sql = f"{_PLAYLIST_ITEM} WHERE path IN ({{}})"
+    with library.music_dir_context(), library.transaction():
+        stored = {path_field.to_sql(path): path for path in paths}
+        keys = list(stored)
+        for start in range(0, len(keys), CHUNK):
+            chunk = keys[start : start + CHUNK]
+            for row in rows(library, sql.format(", ".join("?" * len(chunk))), chunk):
+                value = row[4]
+                path = stored.get(value) if isinstance(value, bytes) else None
+                if path is None:
+                    path = path_field.from_sql(value)
+                found[path] = _playlist_item(row, path)
+    return found
+
+
 # beets' columns can hold NULL, or values of another type than declared.
 def _int(value: Any) -> int:
     try:
