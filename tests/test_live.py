@@ -114,7 +114,7 @@ def run(scenario: Scenario, **options: Any) -> None:
         player = FakePlayer()
         live.attach(player)
         try:
-            await scenario(live, player, library)
+            await asyncio.wait_for(scenario(live, player, library), 10)
         finally:
             live.close()
 

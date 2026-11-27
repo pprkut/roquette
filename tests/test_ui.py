@@ -114,8 +114,9 @@ async def settle(window: ui.MainWindow) -> None:
     """Wait until the window and its live playlist have done their work."""
     live = window.live
     assert live is not None
-    while window._tasks or live._tasks or live._loading is not None:
-        await asyncio.sleep(0.001)
+    async with asyncio.timeout(10):
+        while window._tasks or live._tasks or live._loading is not None:
+            await asyncio.sleep(0.001)
 
 
 def test_the_latest_play_wins() -> None:
@@ -125,8 +126,9 @@ def test_the_latest_play_wins() -> None:
         window, library, player, inbox = window_with_playlist()
         window.play([1])
         window.play([2])
-        while not player.played:
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(10):
+            while not player.played:
+                await asyncio.sleep(0.01)
         library.slow.set()
         await settle(window)
         assert window.live is not None
