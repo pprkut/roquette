@@ -146,17 +146,18 @@ async def entries(
     library: Library, saved: Sequence[Saved]
 ) -> tuple[list[Entry], int | None]:
     """The entries of a saved playlist in the library, and the position
-    of the current one. Files beets doesn't know are left out, unless
-    their item is still there (the file moved)."""
+    of the current one. An entry is its item if that's still the file,
+    else the file's item; else its item, the file moved; files beets
+    doesn't know are left out."""
     by_path = await library.playlist_items_by_path([s.path for s in saved])
-    lost = [s.item for s in saved if s.path not in by_path and s.item is not None]
-    by_id = {i.id: i for i in await library.playlist_items(lost)} if lost else {}
+    ids = [s.item for s in saved if s.item is not None]
+    by_id = {i.id: i for i in await library.playlist_items(ids)} if ids else {}
     found: list[Entry] = []
     current = None
     for row in saved:
-        item = by_path.get(row.path)
-        if item is None and row.item is not None:
-            item = by_id.get(row.item)
+        item = by_id.get(row.item) if row.item is not None else None
+        if item is None or item.path != row.path:
+            item = by_path.get(row.path, item)
         if item is None:
             continue
         if row.current:

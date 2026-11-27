@@ -91,17 +91,22 @@ class Library:
 
 def test_entries() -> None:
     moved = item(2, b"/m/moved.flac")
-    library = Library([item(1), moved, item(3)])
+    # Two items of one file, and an id that's another file's now.
+    twin = item(4, b"/m/1.flac")
+    other = item(5, b"/m/other.flac")
+    library = Library([item(1), moved, item(3), twin, other])
     saved = [
         Saved(b"/m/1.flac", 1, pinned=True),
         # Moved since, found by its id.
         Saved(b"/m/2.flac", 2),
         Saved(b"/m/gone.flac", 9, current=True),
         Saved(b"/m/3.flac", None, current=True),
+        Saved(b"/m/1.flac", 4),
+        Saved(b"/m/3.flac", 5),
     ]
     entries, current = asyncio.run(m3u.entries(library, saved))
-    assert [e.item for e in entries] == [item(1), moved, item(3)]
-    assert [e.pinned for e in entries] == [True, False, False]
+    assert [e.item for e in entries] == [item(1), moved, item(3), twin, item(3)]
+    assert [e.pinned for e in entries] == [True, False, False, False, False]
     assert current == 2
 
 
