@@ -9,6 +9,7 @@ for the Slint component.
 """
 
 import asyncio
+import logging
 import sqlite3
 from array import array
 from collections.abc import Sequence
@@ -31,8 +32,11 @@ from roquette.ui.window import WindowOptions, load_ui, volume_factor
 
 
 @pytest.mark.parametrize("name", ["main_window", "empty_window"])
-def test_compiles(name: str) -> None:
+def test_compiles(name: str, caplog: pytest.LogCaptureFixture) -> None:
+    """Without warnings either, which Slint logs."""
+    caplog.set_level(logging.WARNING)
     load_ui(name)
+    assert [r.getMessage() for r in caplog.records] == []
 
 
 def test_volume_factor() -> None:
