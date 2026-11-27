@@ -36,7 +36,9 @@
 #   SCENARIOS     which measurements to run (default "startup idle scroll
 #                 playing"; the floor is part of startup and idle)
 #   OUT_DIR       logs, samples and the thumbnail cache the cover runs use
-#                 (default build/measure/<timestamp>)
+#                 (default build/measure/<timestamp>); the runs keep their
+#                 live playlist in it too, not in the user's
+#                 $XDG_STATE_HOME
 #
 # Prints a Markdown summary, also written to $OUT_DIR/summary.md.
 
@@ -56,6 +58,7 @@ PLAY_SECS=${PLAY_SECS:-30}
 AUDIO_SINK=${AUDIO_SINK:-}
 SCENARIOS=${SCENARIOS:-startup idle scroll playing}
 OUT_DIR=${OUT_DIR:-build/measure/$(date +%Y%m%d-%H%M%S)}
+export XDG_STATE_HOME=$OUT_DIR/state
 
 variants=("$@")
 if [[ ${#variants[@]} -eq 0 ]]; then
