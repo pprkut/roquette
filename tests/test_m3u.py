@@ -121,7 +121,7 @@ def run_file(
         inbox = Inbox(asyncio.get_running_loop())
         file = PlaylistFile(path, inbox, delay)
         try:
-            await scenario(file)
+            await asyncio.wait_for(scenario(file), 10)
         finally:
             file.close()
             inbox.close()
@@ -138,7 +138,7 @@ def test_saved_after_a_change(tmp_path: Path) -> None:
         file.changed(playlist)
         file.changed(playlist)
         assert not file.path.exists()
-        while not file.path.exists() or file._writing is not None:
+        while not file.path.exists() or file._writing:
             await asyncio.sleep(0.005)
         assert m3u.read(file.path) == [Saved(b"/m/1.flac", 1)]
         # Changed and not saved yet: saved when it closes.
@@ -166,8 +166,33 @@ def test_a_write_that_fails(tmp_path: Path, caplog: pytest.LogCaptureFixture) ->
 
     async def scenario(file: PlaylistFile) -> None:
         file.changed(playlist)
-        while file._timer is not None or file._writing is not None:
+        while file._timer is not None or file._writing:
             await asyncio.sleep(0.005)
 
     run_file(tmp_path, scenario)
     assert "couldn't save the live playlist" in caplog.text
+
+
+def test_closed_while_a_write_is_on_its_way(tmp_path: Path) -> None:
+    """The write that was handed off finishes, and a change after it is
+    written too; nothing older is written after that."""
+    playlist = Playlist()
+    playlist.append([Entry(item(1))])
+
+    async def scenario(file: PlaylistFile) -> None:
+        file.delay = 0.0
+        file.changed(playlist)
+        async with asyncio.timeout(10):
+            while not file._writing:
+                await asyncio.sleep(0)
+        playlist.append([Entry(item(2))])
+        file.changed(playlist)
+        file.close()
+        assert [r.item for r in m3u.read(file.path)] == [1, 2]
+        # Changes after it closed aren't written.
+        playlist.append([Entry(item(3))])
+        file.changed(playlist)
+        await asyncio.sleep(0.05)
+
+    path = run_file(tmp_path, scenario)
+    assert [r.item for r in m3u.read(path)] == [1, 2]

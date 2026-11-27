@@ -181,7 +181,9 @@ class PlaylistFile:
         self._executor: ThreadPoolExecutor | None = None
         self._playlist: Playlist | None = None
         self._timer: asyncio.TimerHandle | None = None
-        self._writing: asyncio.Task[None] | None = None
+        # A write was handed to the thread and hasn't finished.
+        self._writing = False
+        self._closed = False
         # Changed since it was last written (or since the write on its way
         # took its rows).
         self._dirty = False
@@ -192,6 +194,8 @@ class PlaylistFile:
 
     def changed(self, playlist: Playlist) -> None:
         """Write `playlist` in a little while."""
+        if self._closed:
+            return
         self._playlist = playlist
         self._dirty = True
         if self._timer is None:
@@ -200,7 +204,7 @@ class PlaylistFile:
 
     def _save(self) -> None:
         self._timer = None
-        if self._writing is not None:
+        if self._writing:
             # Once it's written, this change is.
             self._timer = asyncio.get_running_loop().call_later(self.delay, self._save)
             return
@@ -210,18 +214,24 @@ class PlaylistFile:
         saved = rows(playlist)
         self._dirty = False
 
-        async def save() -> None:
+        def save() -> None:
             try:
-                await self._inbox.run(self._pool(), lambda: write(self.path, saved))
+                write(self.path, saved)
             except OSError as error:
                 log.warning("couldn't save the live playlist: %s", error)
             finally:
-                self._writing = None
+                self._inbox.post(self._written)
 
-        self._writing = asyncio.get_running_loop().create_task(save())
+        # Handed to the thread right away, so that `close` waits for it.
+        self._writing = True
+        self._pool().submit(save)
+
+    def _written(self) -> None:
+        self._writing = False
 
     def close(self) -> None:
         """Write what changed now; blocking."""
+        self._closed = True
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
