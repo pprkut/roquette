@@ -14,16 +14,19 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import slint
 
-from roquette.library.index import Playable
+from roquette.library import LibraryError
+from roquette.library.index import TrackText
 from roquette.library.query import QueryError
 from roquette.library.service import Collection, LibraryService
 from roquette.measure import Stopwatch
 from roquette.modules.covers import CoverGrid
 from roquette.modules.tracks import TrackList, format_length, sort_query
 from roquette.playback.gain import AppliedGain
-from roquette.playback.source import PlaybackError, Source, SourceList, State
-from roquette.queue.pane import PlaylistPane, placeholder_groups
-from roquette.queue.replaygain import make_sources
+from roquette.playback.source import PlaybackError, State
+from roquette.queue.live import LivePlaylist, QueuedSource
+from roquette.queue.m3u import PlaylistFile
+from roquette.queue.pane import PlaylistPane, groups_for
+from roquette.queue.playlist import Repeat, Shuffle
 from roquette.threads import Inbox
 from roquette.ui.models import CoverModel, PlaylistModel, TrackModel
 
@@ -52,19 +55,24 @@ class WindowOptions:
     # ReplayGain: "auto", "track", "album" or "off"; from "beets" or "tags".
     replaygain: str = "auto"
     replaygain_source: str = "beets"
+    # Repeat and shuffle, as `Repeat` and `Shuffle` have them.
+    repeat: str = "off"
+    shuffle: str = "off"
+    # Where the live playlist is kept, or None not to keep it.
+    playlist_file: Path | None = None
 
 
 # The position display ticks once a second, this long after each second
 # of the track starts, so the text changes on every tick and only then.
 TICK_DELAY = 0.02
-# "Previous" goes back to the start of the track after this many seconds.
-RESTART_AFTER = 3.0
 
 
 class DraggedTracks(NamedTuple):
     """What a drag from the track list or the cover grid carries."""
 
     ids: tuple[int, ...]
+    # A whole release, pinned to its versions.
+    pinned: bool = False
 
 
 def volume_factor(percent: float) -> float:
@@ -103,18 +111,26 @@ class MainWindow:
         self._track_order = (0, True)
         self._tasks: set[asyncio.Task[Any]] = set()
 
-        self.pane = PlaylistPane(placeholder_groups())
+        self.pane = PlaylistPane([])
         self.playlist_model = PlaylistModel(self.pane, ui.PlaylistRowKind)
         w.playlist_rows = self.playlist_model
 
         # Set once loaded: the engine (on its own a little after the
-        # library) and the library.
+        # library), the library and the live playlist on it.
         self.engine: Engine | None = None
         self.library: LibraryService | None = None
-        # What the engine plays, and the tracks of it: S2's list, until
-        # the live playlist (M3).
-        self._sources = SourceList()
-        self._playing: list[Playable] = []
+        self.live: LivePlaylist | None = None
+        self.playlist_file = (
+            PlaylistFile(options.playlist_file, inbox)
+            if options.playlist_file is not None
+            else None
+        )
+        # The live playlist is saved once the saved one is restored.
+        self._restored = False
+        # The text of the live playlist's tracks, for the pane.
+        self._texts: dict[int, TrackText] = {}
+        self._pane_task: asyncio.Task[None] | None = None
+        self._pane_again = False
         # Counts the calls of `play`: only the latest one's look-up plays.
         self._play_requests = 0
         self._sink_noted = False
@@ -164,6 +180,10 @@ class MainWindow:
             self.cover_model.close()
         if self._ticker is not None:
             self._ticker.cancel()
+        if self.live is not None:
+            self.live.close()
+        if self.playlist_file is not None:
+            self.playlist_file.close()
         if self.engine is not None:
             self.engine.close()
 
@@ -171,8 +191,8 @@ class MainWindow:
         """The engine, attached to the running event loop."""
         self.engine = engine
         engine.attach(asyncio.get_running_loop())
-        engine.upcoming = self._sources
-        engine.on_started = self._started
+        if self.live is not None:
+            self.live.attach(engine)
         engine.on_state_changed = self._state_changed
         engine.on_error = self._error
         engine.volume = volume_factor(self.window.volume)
@@ -180,6 +200,19 @@ class MainWindow:
     def set_library(self, library: LibraryService, collection: Collection) -> None:
         """The library, opened, and its index."""
         self.library = library
+        options = self.options
+        live = LivePlaylist(
+            library,
+            replaygain=options.replaygain,
+            gain_source=options.replaygain_source,
+        )
+        live.playlist.repeat = Repeat(options.repeat)
+        live.playlist.shuffle = Shuffle(options.shuffle)
+        live.on_started = self._started
+        live.on_changed = self._playlist_changed
+        if self.engine is not None:
+            live.attach(self.engine)
+        self.live = live
         scale = self.options.scale
         self.track_list = TrackList(
             collection.index.tracks.ids,
@@ -196,7 +229,8 @@ class MainWindow:
         self.set_collection(collection)
 
     def set_collection(self, collection: Collection) -> None:
-        """The library's index, again after the library changed.
+        """The library's index, again after the library changed (then the
+        live playlist reads its tracks again too).
 
         The views show their text from before until it's read again, so
         that they don't flash empty; the track list keeps its rows until
@@ -232,6 +266,9 @@ class MainWindow:
         releases_count = len(index.releases) * scale
         self.window.status = f"{tracks_count:,} tracks\n{releases_count:,} releases"
         self._module_selected(self.window.module)
+        if not first and self.live is not None:
+            self._texts.clear()
+            self._spawn(self.live.reload())
 
     def _spawn(self, coroutine: Coroutine[Any, Any, Any]) -> None:
         task = asyncio.get_running_loop().create_task(coroutine)
@@ -295,13 +332,13 @@ class MainWindow:
             self.window.track_current = row
 
     def _track_activate(self, row: int) -> None:
-        """Play the track's release from the track on (S2's stand-in until
-        the live playlist, M3)."""
+        """Add the track's release to the playlist and play it from the
+        track on (until the tree module decides, M6)."""
         if self.track_list is None or row < 0:
             return
         item_id = self.track_list.id(row)
         ids = self._release_of_track(item_id, self.track_list.position(row))
-        self.play(ids, ids.index(item_id))
+        self._add(ids, pinned=len(ids) > 1, play=ids.index(item_id))
 
     def _track_sort(self, column: int) -> None:
         if self.track_list is None:
@@ -350,9 +387,9 @@ class MainWindow:
             self.window.track_current = self.track_list.navigate(key, page)
 
     def _track_menu(self, row: int, action: str) -> None:
-        # The spike has no "next" in the playlist; both append.
         if self.track_list is not None and row >= 0:
-            self._append([self.track_list.id(row)])
+            how = "next" if action == "play-next" else "append"
+            self._add([self.track_list.id(row)], how=how)
 
     def _track_drag_data(self, row: int) -> slint.DataTransfer:
         data = slint.DataTransfer()
@@ -385,9 +422,9 @@ class MainWindow:
             self.window.cover_current = index
 
     def _cover_activate(self, index: int) -> None:
-        """Play the release (S2's stand-in until the live playlist, M3)."""
+        """Add the release to the playlist and play it."""
         if self.cover_grid is not None and index >= 0:
-            self.play(self._release_tracks(index))
+            self._add(self._release_tracks(index), pinned=True, play=0)
 
     def _cover_navigate(self, key: str, columns: int) -> None:
         if self.cover_grid is not None and len(self.cover_grid):
@@ -396,7 +433,7 @@ class MainWindow:
     def _cover_drag_data(self, index: int) -> slint.DataTransfer:
         data = slint.DataTransfer()
         if self.cover_grid is not None:
-            data.user_data = DraggedTracks(tuple(self._release_tracks(index)))
+            data.user_data = DraggedTracks(tuple(self._release_tracks(index)), True)
             release = self.cover_grid.release(index)
             if release is not None:
                 data.plain_text = f"{release.albumartist} – {release.title}"
@@ -434,20 +471,104 @@ class MainWindow:
 
     # Playlist
 
-    def _append(self, ids: Sequence[int]) -> None:
-        """Add tracks to the pane, once their text is read."""
+    async def load_playlist(self) -> None:
+        """Restore the live playlist saved last time."""
+        live, file, library = self.live, self.playlist_file, self.library
+        if live is None or library is None:
+            return
+        if file is None:
+            self._restored = True
+            return
+        try:
+            entries, current = await file.load(library)
+        except (OSError, LibraryError, sqlite3.Error) as error:
+            # Not saved over either, until the next start.
+            print(
+                f"roquette: reading the live playlist {file.path}: {error}",
+                file=sys.stderr,
+            )
+            return
+        if not len(live.playlist):
+            live.restore(entries, current)
+        self._restored = True
+
+    def _add(
+        self,
+        ids: Sequence[int],
+        *,
+        pinned: bool = False,
+        how: str = "append",
+        play: int | None = None,
+    ) -> None:
+        """Add tracks to the live playlist ("append", "next" or "replace"
+        it), once they're looked up, and play the one at `play`."""
         if not ids or self.library is None:
             return
         library, wanted = self.library, list(ids)
+        self._play_requests += how == "replace"
+        request = self._play_requests
 
-        async def append() -> None:
-            text = await library.track_text(wanted)
-            tracks = [text[i] for i in wanted if i in text]
-            if tracks:
-                start, count = self.pane.append(tracks)
-                self.playlist_model.rows_changed(start, count)
+        async def add() -> None:
+            items = await library.playlist_items(wanted)
+            live = self.live
+            # A later "replace" wins, wherever this one was held up.
+            if live is None or not items or request != self._play_requests:
+                return
+            if how == "replace":
+                live.replace(items, pinned=pinned)
+                start = 0
+            elif how == "next":
+                start = live.play_next(items, pinned=pinned)
+            else:
+                start = live.append(items, pinned=pinned)
+            if play is not None:
+                first = wanted[play]
+                offset = next((n for n, i in enumerate(items) if i.id == first), 0)
+                live.play(live.playlist[start + offset])
 
-        self._spawn(append())
+        self._spawn(add())
+
+    def _playlist_changed(self) -> None:
+        if self.live is not None and self.playlist_file is not None and self._restored:
+            self.playlist_file.changed(self.live.playlist)
+        self._refresh_pane()
+
+    def _refresh_pane(self) -> None:
+        """Show the live playlist in the pane, once its text is read."""
+        if self._pane_task is not None:
+            self._pane_again = True
+            return
+
+        async def refresh() -> None:
+            try:
+                while True:
+                    self._pane_again = False
+                    await self._show_playlist()
+                    if not self._pane_again:
+                        return
+            finally:
+                self._pane_task = None
+
+        self._pane_task = asyncio.get_running_loop().create_task(refresh())
+        self._tasks.add(self._pane_task)
+        self._pane_task.add_done_callback(self._tasks.discard)
+
+    async def _show_playlist(self) -> None:
+        live, library = self.live, self.library
+        if live is None or library is None:
+            return
+        ids = {e.item.id for e in live.playlist}
+        missing = ids - self._texts.keys()
+        if missing:
+            try:
+                self._texts.update(await library.track_text(missing))
+            except sqlite3.Error as error:
+                print(f"roquette: the playlist's tracks: {error}", file=sys.stderr)
+        self._texts = {i: t for i, t in self._texts.items() if i in ids}
+        groups, playing = groups_for(list(live.playlist), self._texts, live.current)
+        self.pane.set_groups(groups, playing)
+        self.playlist_model.reset(len(self.pane))
+        self.window.playlist_current = self.pane.current
 
     def _playlist_select(self, row: int) -> None:
         self.pane.current = row
@@ -473,41 +594,20 @@ class MainWindow:
     def _playlist_dropped(self, data: slint.DataTransfer) -> None:
         dragged = data.user_data
         if isinstance(dragged, DraggedTracks):
-            self._append(dragged.ids)
+            self._add(dragged.ids, pinned=dragged.pinned)
 
     # Transport
 
     def play(self, ids: Sequence[int], start: int = 0) -> None:
-        """Play the tracks `ids` from `start` on, once their files are
-        looked up."""
-        if self.engine is None or self.library is None or not ids:
+        """Replace the live playlist with the tracks `ids` and play them
+        from `start` on, once they're looked up."""
+        self._add(ids, how="replace", play=start)
+
+    def _started(self, source: QueuedSource, gain: AppliedGain) -> None:
+        playable = source.playable
+        if playable is None:
             return
-        library, wanted, first = self.library, list(ids), ids[start]
-        self._play_requests += 1
-        request = self._play_requests
-
-        async def look_up() -> None:
-            playables = await library.playables(wanted)
-            # A later look-up wins, wherever this one was held up.
-            if request != self._play_requests or self.engine is None:
-                return
-            if not playables:
-                return
-            index = next((n for n, p in enumerate(playables) if p.id == first), 0)
-            sources = make_sources(
-                playables, self.options.replaygain, self.options.replaygain_source
-            )
-            self._playing = playables
-            self._sources.sources = tuple(sources)
-            self.engine.play(sources[index])
-
-        self._spawn(look_up())
-
-    def _started(self, source: Source, gain: AppliedGain) -> None:
-        index = self._sources.index(source)
-        if index is None:
-            return
-        track = self._playing[index].text
+        track = playable.text
         w = self.window
         w.now_title = track.title
         w.now_artist = (
@@ -520,7 +620,11 @@ class MainWindow:
         if self.engine is not None and not self._sink_noted:
             self._sink_noted = True
             self.stopwatch.note(f"audio sink: {self.engine.sink_name()}")
-        self.stopwatch.mark(f"playing track {index + 1} of {len(self._playing)}")
+        if self.live is not None and source.entry in self.live.playlist:
+            playlist = self.live.playlist
+            assert source.entry is not None
+            number = playlist.index(source.entry) + 1
+            self.stopwatch.mark(f"playing track {number} of {len(playlist)}")
 
     def _state_changed(self, state: State) -> None:
         playing = state is State.PLAYING
@@ -570,34 +674,16 @@ class MainWindow:
             await asyncio.sleep(1.0 - position % 1.0 + TICK_DELAY)
 
     def _play_pause(self) -> None:
-        engine = self.engine
-        if engine is None:
-            return
-        # The state asked for: a start on its way is paused or resumed too.
-        if engine.target is State.PLAYING:
-            engine.pause()
-        elif engine.target is State.PAUSED:
-            engine.resume()
-        elif self._sources.sources:
-            engine.play(self._sources.sources[0])
+        if self.live is not None:
+            self.live.play_pause()
 
     def _previous(self) -> None:
-        engine = self.engine
-        if engine is None or engine.current is None:
-            return
-        previous = self._sources.offset(engine.current, -1)
-        if previous is None or (engine.position() or 0.0) > RESTART_AFTER:
-            self._seek(0.0)
-        else:
-            engine.play(previous, paused=engine.state is State.PAUSED)
+        if self.live is not None:
+            self.live.previous()
 
     def _next(self) -> None:
-        engine = self.engine
-        if engine is None or engine.current is None:
-            return
-        following = self._sources.offset(engine.current, 1)
-        if following is not None:
-            engine.play(following, paused=engine.state is State.PAUSED)
+        if self.live is not None:
+            self.live.next()
 
     def _seek(self, position: float) -> None:
         if self.engine is not None and self.engine.current is not None:

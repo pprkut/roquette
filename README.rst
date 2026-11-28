@@ -18,9 +18,10 @@ of looking at a collection.
 Current status
 --------------
 
-Roquette is being restarted. It plays a release, gapless and with
-ReplayGain, when you double-click it, and not much more yet. The roadmap is in
-`docs/PLAN.md <docs/PLAN.md>`_.
+Roquette is being restarted. A double click on a track or a cover adds its
+release to the playlist and plays it, gapless and with ReplayGain; the
+playlist is kept from one start to the next. Not much more yet. The roadmap is
+in `docs/PLAN.md <docs/PLAN.md>`_.
 
 Your beets library
 ------------------

@@ -54,7 +54,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--play",
         metavar="QUERY",
         help="play the tracks a beets query finds, in its order, once the library"
-        " is loaded",
+        " is loaded, instead of the live playlist",
     )
     playback.add_argument(
         "--audio-sink",
@@ -97,6 +97,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="beets",
         help="the ReplayGain values of the beets database, or of the files'"
         " tags; without values in beets, the tags count (default: %(default)s)",
+    )
+    playback.add_argument(
+        "--repeat",
+        choices=["off", "track", "playlist"],
+        default="off",
+        help="repeat the current track or the playlist (default: %(default)s)",
+    )
+    playback.add_argument(
+        "--shuffle",
+        choices=["off", "tracks", "releases"],
+        default="off",
+        help="play the tracks, or the releases, of the playlist in a random"
+        " order (default: %(default)s)",
     )
     playback.add_argument(
         "--preamp",

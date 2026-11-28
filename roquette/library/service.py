@@ -33,10 +33,13 @@ from roquette.library import LibraryError, config, database, grouping, recording
 from roquette.library.index import (
     LibraryIndex,
     Playable,
+    PlaylistItem,
     ReleaseText,
     TrackText,
     load_index,
     load_playables,
+    load_playlist_items,
+    playlist_items_by_path,
     release_text,
     track_text,
 )
@@ -190,6 +193,20 @@ class LibraryService:
     async def playables(self, ids: Sequence[int]) -> list[Playable]:
         wanted = list(ids)
         return await self._reader.run(lambda library: load_playables(library, wanted))
+
+    async def playlist_items(self, ids: Sequence[int]) -> list[PlaylistItem]:
+        wanted = list(ids)
+        return await self._reader.run(
+            lambda library: load_playlist_items(library, wanted)
+        )
+
+    async def playlist_items_by_path(
+        self, paths: Sequence[bytes]
+    ) -> dict[bytes, PlaylistItem]:
+        wanted = list(paths)
+        return await self._reader.run(
+            lambda library: playlist_items_by_path(library, wanted)
+        )
 
     # Writing
 

@@ -21,14 +21,17 @@ from typing import Any, cast
 import pytest
 
 from roquette.library.grouping import Groups
-from roquette.library.index import Playable, TrackText
+from roquette.library.index import Playable, PlaylistItem, TrackText
 from roquette.measure import Stopwatch
 from roquette.modules.tracks import TrackList
 from roquette.playback.gain import ReplayGain
-from roquette.playback.source import Source, State
+from roquette.queue import m3u
+from roquette.queue.live import LivePlaylist
+from roquette.queue.m3u import Saved
 from roquette.threads import Inbox
 from roquette.ui import window as ui
 from roquette.ui.window import WindowOptions, load_ui, volume_factor
+from tests.test_live import FakePlayer
 
 
 @pytest.mark.parametrize("name", ["main_window", "empty_window"])
@@ -46,137 +49,168 @@ def test_volume_factor() -> None:
     assert volume_factor(150) == 1.0
 
 
-class FakeEngine:
-    def __init__(self) -> None:
-        self.played: list[Path] = []
-        self.sought: list[float] = []
-        self.current: Source | None = None
-        self.state = State.PLAYING
-        self.target = State.PLAYING
-        self.at = 0.0
-        self.calls: list[str] = []
-
-    def pause(self) -> None:
-        self.calls.append("pause")
-
-    def resume(self) -> None:
-        self.calls.append("resume")
-
-    def play(self, source: Source, *, paused: bool = False) -> None:
-        self.played.append(source.path)
-        self.current = source
-
-    def position(self) -> float:
-        return self.at
-
-    def seek(self, position: float) -> None:
-        self.sought.append(position)
-
-
 class FakeLibrary:
-    """The library service's `playables`; the look-up of track 1 is slow."""
+    """The library service, as the window's live playlist uses it; the
+    look-up of track 1 is slow."""
 
     def __init__(self) -> None:
         self.slow = asyncio.Event()
 
-    async def playables(self, ids: Sequence[int]) -> list[Playable]:
+    async def playlist_items(self, ids: Sequence[int]) -> list[PlaylistItem]:
         if list(ids) == [1]:
             await self.slow.wait()
-        text = TrackText("Track", "Artist", "", "Artist", 1, 1, 60.0)
+        return [PlaylistItem(i, 3, 1, i, f"/m/{i}.flac".encode()) for i in ids]
+
+    async def playlist_items_by_path(
+        self, paths: Sequence[bytes]
+    ) -> dict[bytes, PlaylistItem]:
+        found = {}
+        for path in paths:
+            if path.startswith(b"/m/"):
+                n = int(path[3:].split(b".")[0])
+                found[path] = PlaylistItem(n, 3, 1, n, path)
+        return found
+
+    async def playables(self, ids: Sequence[int]) -> list[Playable]:
         return [
-            Playable(i, 0, Path(f"{i}.flac"), 60.0, ReplayGain(), text) for i in ids
+            Playable(i, 3, Path(f"/m/{i}.flac"), 60.0, ReplayGain(), text(i))
+            for i in ids
         ]
+
+    async def track_text(self, ids: Sequence[int]) -> dict[int, TrackText]:
+        return {i: text(i) for i in ids}
+
+
+def text(n: int) -> TrackText:
+    return TrackText(f"Track {n}", "Artist", "Album", "Artist", 1, n, 60.0)
+
+
+COMPILED = SimpleNamespace(
+    MainWindow=lambda: SimpleNamespace(volume=80.0),
+    PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
+)
+
+
+def window_with_playlist(
+    options: WindowOptions | None = None,
+) -> tuple[ui.MainWindow, FakeLibrary, FakePlayer, Inbox]:
+    """A window with a live playlist on the fake library, played by a
+    stand-in for the engine; on the running event loop."""
+    inbox = Inbox(asyncio.get_running_loop())
+    window = ui.MainWindow(
+        COMPILED, options or WindowOptions(), Stopwatch(False), inbox
+    )
+    library = FakeLibrary()
+    player = FakePlayer()
+    window.library = cast(Any, library)
+    window.live = LivePlaylist(library)
+    window.live.on_started = window._started
+    window.live.on_changed = window._playlist_changed
+    window.live.attach(player)
+    return window, library, player, inbox
+
+
+async def settle(window: ui.MainWindow) -> None:
+    """Wait until the window and its live playlist have done their work."""
+    live = window.live
+    assert live is not None
+    async with asyncio.timeout(10):
+        while window._tasks or live._tasks or live._loading is not None:
+            await asyncio.sleep(0.001)
 
 
 def test_the_latest_play_wins() -> None:
-    """A look-up that finishes after a later one's doesn't play."""
-    compiled = SimpleNamespace(
-        MainWindow=lambda: SimpleNamespace(volume=80.0),
-        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
-    )
-    engine = FakeEngine()
+    """A look-up that finishes after a later one's doesn't replace it."""
 
     async def main() -> None:
-        loop = asyncio.get_running_loop()
-        inbox = Inbox(loop)
-        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
-        library = FakeLibrary()
-        window.engine = cast(Any, engine)
-        window.library = cast(Any, library)
+        window, library, player, inbox = window_with_playlist()
         window.play([1])
         window.play([2])
-        while not engine.played:
-            await asyncio.sleep(0.01)
+        async with asyncio.timeout(10):
+            while not player.played:
+                await asyncio.sleep(0.01)
         library.slow.set()
-        # Time for the first look-up to come back, too.
-        await asyncio.sleep(0.1)
+        await settle(window)
+        assert window.live is not None
+        assert [e.item.id for e in window.live.playlist] == [2]
+        assert [s.path for s, _, _ in player.played] == [Path("/m/2.flac")]
         inbox.close()
 
     asyncio.run(main())
-    assert engine.played == [Path("2.flac")]
 
 
-def test_previous_and_next() -> None:
-    """Until the live playlist (M3), the window plays its list."""
-    compiled = SimpleNamespace(
-        MainWindow=lambda: SimpleNamespace(volume=80.0),
-        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
-    )
-    engine = FakeEngine()
+def test_the_pane_shows_the_live_playlist() -> None:
+    async def main() -> None:
+        window, library, player, inbox = window_with_playlist()
+        library.slow.set()
+        window._add([2, 3])
+        window._add([4], how="next")
+        await settle(window)
+        assert [window.pane.row(i).title for i in range(len(window.pane))] == [
+            "Album",
+            "Track 4",
+            "Track 2",
+            "Track 3",
+        ]
+        assert window.playlist_model.row_count() == 4
+        # Playing: the marker moves, and so does the now-playing display.
+        window._add([5], play=0)
+        await settle(window)
+        assert window.pane.row(4).playing
+        player.start(player.played[-1][0])
+        await settle(window)
+        assert window.window.now_title == "Track 5"
+        window._next()
+        inbox.close()
+
+    asyncio.run(main())
+
+
+def test_the_live_playlist_is_kept(tmp_path: Path) -> None:
+    path = tmp_path / "state" / "playlist.m3u8"
+    m3u.write(path, [Saved(b"/m/7.flac", 7, current=True), Saved(b"/m/8.flac", 8)])
 
     async def main() -> None:
-        inbox = Inbox(asyncio.get_running_loop())
-        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
-        window.engine = cast(Any, engine)
-        a, b, c = (Source(Path(f"{n}.flac")) for n in "abc")
-        window._sources.sources = (a, b, c)
-        engine.current = b
-        window._next()
-        assert engine.played == [Path("c.flac")]
-        window._next()
-        assert engine.played == [Path("c.flac")]
-        # Back to the start of the track after a few seconds, else the
-        # one before.
-        engine.at = 5.0
-        window._previous()
-        assert engine.sought == [0.0]
-        engine.at = 1.0
-        window._previous()
-        assert engine.played[-1] == Path("b.flac")
-        engine.current = a
-        window._previous()
-        assert engine.sought == [0.0, 0.0]
+        options = WindowOptions(playlist_file=path)
+        window, library, _, inbox = window_with_playlist(options)
+        library.slow.set()
+        await window.load_playlist()
+        live = window.live
+        assert live is not None
+        assert [e.item.id for e in live.playlist] == [7, 8]
+        assert live.current is live.playlist[0]
+        assert window.playlist_file is not None
+        window.playlist_file.delay = 0.0
+        window._add([9], pinned=True)
+        await settle(window)
+        window.close()
         inbox.close()
 
     asyncio.run(main())
+    assert m3u.read(path) == [
+        Saved(b"/m/7.flac", 7, current=True),
+        Saved(b"/m/8.flac", 8),
+        Saved(b"/m/9.flac", 9, pinned=True),
+    ]
 
 
-def test_play_pause_while_a_track_starts() -> None:
-    """The state asked for counts, not the one the pipeline reached: a
-    start on its way is paused, not replaced by the list's first track."""
-    compiled = SimpleNamespace(
-        MainWindow=lambda: SimpleNamespace(volume=80.0),
-        PlaylistRowKind=Enum("PlaylistRowKind", "release track version"),
-    )
-    engine = FakeEngine()
+def test_a_playlist_that_cant_be_read_isnt_saved_over(tmp_path: Path) -> None:
+    path = tmp_path / "playlist.m3u8"
+    path.mkdir()
 
     async def main() -> None:
-        inbox = Inbox(asyncio.get_running_loop())
-        window = ui.MainWindow(compiled, WindowOptions(), Stopwatch(False), inbox)
-        window.engine = cast(Any, engine)
-        a, b = (Source(Path(f"{n}.flac")) for n in "ab")
-        window._sources.sources = (a, b)
-        engine.state = State.STOPPED
-        window._play_pause()
-        engine.target = State.PAUSED
-        window._play_pause()
-        assert (engine.calls, engine.played) == (["pause", "resume"], [])
-        engine.target = State.STOPPED
-        window._play_pause()
-        assert engine.played == [Path("a.flac")]
+        window, library, _, inbox = window_with_playlist(
+            WindowOptions(playlist_file=path)
+        )
+        library.slow.set()
+        await window.load_playlist()
+        window._add([9])
+        await settle(window)
+        window.close()
         inbox.close()
 
     asyncio.run(main())
+    assert path.is_dir()
 
 
 class LockedLibrary:
